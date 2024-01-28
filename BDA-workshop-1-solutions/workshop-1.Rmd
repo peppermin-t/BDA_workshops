@@ -1,0 +1,350 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+**University of Edinburgh**
+
+**School of Mathematics**
+
+**Bayesian Data Analysis, 2023/2024, Semester 1**
+
+**Workshop 1: Introduction to INLA**
+
+**Note**: Before starting this practical, you are advised to spend some
+time looking at the INLA examples we have discussed during Lecture 2
+(available in lecture-2.Rmd on Learn). If you already looked at these,
+then feel free to go directly to question 1. The code below loads INLA.
+
+```{r}
+library(INLA)
+
+#If it loaded correctly, you should see this in the output:
+#Loading required package: Matrix
+#Loading required package: sp
+#This is INLA_23.09.09 built 2023-10-16 17:29:11 UTC.
+# - See www.r-inla.org/contact-us for how to get help.
+
+#Installation instructions for various operating systems are explained on  https://www.r-inla.org/download-install
+#The following code does the full installation. You can try it if INLA has not been installed.
+#First installing some of the dependencies (especially on Windows) 
+#Note that the installation may stop several times, and a pop-up window could appear, where you need to select installation from source or binary (usually binary is ok). 
+
+#install.packages("BiocManager")
+#BiocManager::install("Rgraphviz")
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("graph")
+#
+#Installing INLA
+#install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+
+#Loading INLA
+#library(INLA)
+```
+
+#### **1. Simple linear regression with robustification**
+
+#### **Winning Olympic Men's Long Jump Distances (adapted from Witmer, 2017)**
+
+**The data are the winning men's long jump distances (m) from 1900
+through 2008. You will fit a linear regression of the distances as a
+function of Olympic year:** $$\begin{aligned}
+Jump & = & \beta_0 + \beta_1 \mbox{Year} + \epsilon\end{aligned}$$
+**three different ways: standard frequentist approach, a Bayesian
+approach assuming normal errors (using INLA), and a Bayesian approach
+assuming a** $t$ **distribution for errors (using INLA).**
+
+**Run the following commands in `R` to begin (this will install and load
+the package Stat2Data and load the Long Jump dataset).**
+
+```{r}
+library(Stat2Data)
+#If not available, run this first:
+#install.packages("Stat2Data")
+
+data("LongJumpOlympics")   #Makes the dataset available in this R session
+Jump <- LongJumpOlympics$Gold
+Year <- LongJumpOlympics$Year
+#You can get more info about the dataset by the command
+#help(topic="LongJumpOlympics",package="Stat2Data")
+```
+
+**1.1. Fit a simple linear regression on Jump against Year using the lm
+function, and make a plot of the data with the fitted line overlaid
+using the abline function.**
+
+**1.2. Center the data, and carry out a Bayesian linear regression
+analysis using `INLA`. As in the frequentist case assume** $\epsilon$
+$\sim$ Normal(0, $\sigma^2$). Use the following priors for the three
+parameters: $$\begin{aligned}
+\beta_0, \beta_1 & \sim & \mbox{Normal} \left ( \mu_0=0, \tau_0=0.01 \right ) \\
+\tau & \sim & \mbox{Gamma} \left ( a=0.1, b=0.1 \right )
+\end{aligned}$$
+
+**1.3. Compute the summary statistics and plot the densities for the
+model parameters** $\beta_0$, $\beta_1$ and $\sigma$.
+
+**1.4. Using a Bayesian Linear Model fitted with INLA with the same
+priors as in (ii), plot the posterior predictive density of the long
+jump distance in 2021 (hopefully the Summer Olympics will happen this
+year). Compute the expectation and state 95% Bayesian credible intervals
+for the long jump distance in 2021.**
+
+**Hint: you can ensure that INLA computes the posterior predictive
+distribution at time 2021 by including 2021 in your Year variable, while
+setting the corresponding component in the Jump variable as NA.**
+
+**1.5. Using INLA, compute the posterior predictive probability that the
+winning jump in 1968 will be exceeded during the Olympics by 2028,
+assuming that Olympics will be held in 2021, 2024 and 2028. Hint: you
+can compute this by sampling from the posterior predictive.**
+
+**1.6. *Robustifying the regression.* As was noted in Lecture 2, the
+effects of extreme observations or "outliers" on regressing results can
+be diminished by using a** $t$ **distribution for the observations. For
+simplicity, first assume a** $t$ **distribution with 3 degrees of
+freedom for the distribution of errors. Revise the INLA model code from
+1.2-1.3 accordingly (continuing to work with the centered covariates)
+and re-run.**
+
+**1.7. In the robust regression INLA example in the previous question
+(vi), set a set a pc.dof(15,0.5) prior on the degrees of freedom
+parameter** $\nu$ **instead of fixing it at 3 (see
+<https://github.com/grantbrown/inla/blob/master/r-inla.org/doc/prior/pc.dof.pdf>).
+Plot the posterior distribution of** $\nu$**.**
+
+**1.8. Compare the linear regression model from part 1.2 with the robust
+linear regression models from parts 1.6 and 1.7 in terms of marginal
+likelihood, Negative Sum Log CPO values, and DIC critera. Which one
+seems to be the best fit on the data according to these criteria?**
+
+#### 2. Predicting house prices
+
+![](images/taipei.jpg)
+
+**In this problem, we are going to model house prices per unit area in a
+dataset containing 414 recent transactions in Taipei.**
+
+**The available covariates are i) transaction date (this is stored as a
+real number between 2012 and 2014, i.e. 2013.5 corresponds to 1 July,
+2013) ii) house age iii) distance from nearest MRT (metro) station in
+meters iv) number of convenience stores within walking distance v)
+latitude vi) longitude The response variable is the house price of unit
+area.**
+
+**The goal is to use INLA to fit several different regression models to
+this dataset. First, we will load ILNA and the dataset (Real_estate.csv,
+available on Learn).**
+
+```{r}
+#We load the Taipei house price dataset
+house=read.csv("Real_estate.csv")
+head(house)
+```
+
+**2.1. Start by centering and scaling all of the covariates (but keep
+the response unchanged). Fit a standard linear regression model (lm)
+with response as the logarithm of house price per unit area, using all
+of the 6 covariates. Describe the quality of the fit, and state summary
+statistics and the residual standard error.**
+
+**2.2. Fit the same linear regression model as in 4.1, but now using
+INLA. Set a Gamma (0.1,0.1) prior for the precision, and Gaussian priors
+with mean zero and variance** $1000000$ **for all of the regression
+coefficients (including the intercept). Print out the summary
+statistics. Compute the posterior mean of the variance parameter**
+$\sigma^2$**. Plot the posterior density for the variance parameter**
+$\sigma^2$**. Compute the negative sum log CPO (NSLCPO) values for this
+model (smaller values indicate better fit). Compute the standard
+deviation of the mean residuals (i.e. the differences between the
+posterior mean of the fitted values, and the true response variable).
+Discuss the results.**
+
+**2.3. Compute the studentized residuals for the Bayesian regression
+model from part b). Perform a simple Q-Q plot on the studentized
+residuals. Plot the studentized residuals versus their index, and also
+plot the studentized residuals against the posterior mean of the fitted
+value (see Lecture 2). Discuss the results.**
+
+**2.4. Fit a robust linear regression model in the same settings as in
+2.2. Set a Gamma (0.1,0.1) prior for the precision, and Gaussian priors
+with mean zero and variance** $1000000$ **for all of the regression
+coefficients (including the intercept). Print out the summary
+statistics. Plot the posterior distribution of the degrees of freedom
+parameter and the variance parameter** $\sigma^2$**. Compute the
+negative sum log CPO (NSLCPO) values for this model (smaller values
+indicate better fit). Compute the standard deviation of the mean
+residuals. Discuss the results.**
+
+**2.5. Modify the regression models of 2.2 and 2.4 by adding interaction
+terms (such as the regression** $\texttt{y~x1+x2+I(x1*x2)}$ **will
+create an additional covariate** $\texttt{x1*x2}$**). Find a model that
+improves upon the previous models in terms of accuracy (i.e. the mean
+residuals have smaller standard deviation). Print out the summary
+statistics, compute NSLCPO and DIC, and the standard deviation of the
+mean residuals. Discuss the results.**
+
+**2.6. Using the model of part 4.2, compute and plot the posterior
+predictive density of the average per unit area house price among all of
+the houses in the dataset (414 in total) at transaction dates 2014.0,
+2015.0 and 2016.0 (these correspond to 1 January). Compute the posterior
+means for all 3 cases. You can assume that the covariates "distance from
+nearest MRT", "number of convenience stores", "latitude", and
+"longitude" stay the same, but the age covariate has to be updated
+according to the transaction date.**
+
+#### 3. Predicting soccer scores by Poisson regression
+
+#### Adapted from "Modeling outcomes of soccer matches" by Tsokos et al.
+
+**In this question, we are going to use a simple Poisson regression
+model for modelling soccer scores. We will be working with the Premier
+League 2019-2020 scores, that are available at
+<https://www.football-data.co.uk/englandm.php>. Suppose that there are**
+$G$ **games in total, ordered in time.**
+
+**We model the number of goals for the home team and the away team at
+the end of game** $g$ **by two independent Poisson random variables,**
+$$S_g^{H}\sim \text{Poisson}(\lambda_{g}^{H}), \quad S_g^{A}\sim \text{Poisson}(\lambda_{g}^{A}),$$**where**
+$S_g^{H}$ **denotes the number of goals of the home team at game**
+$g$**, and** $S_g^{A}$ **denotes the number of goals of the away team at
+game** $g$**.**
+
+**These are assumed to be Poisson distributed with rates**
+$\lambda_{g}^{H}$ **and** $\lambda_{g}^{A}$**.**
+
+**These rates are related to linear predictors by the** $\log$ **link
+function, i.e.** $\eta_{g}^{H}=\log(\lambda_{g}^{H})$ **and**
+$\eta_{g}^{A}=\log(\lambda_{g}^{A})$**.**
+
+**The linear predictors themselves are going to be modeled as a
+combination of three terms: attacking strength, defending ability, and
+whether the team is playing at home, or away. For each team, we denote
+their attacking strength parameter by** $a_{team}$**, their defending
+strength parameter by** $d_{team}$**, and the effect of playing at home
+as** $h$ **(this effect is assumed to be the same for each team in the
+first instance, but you could also try to make it team specific**
+$h_{team}$**). This quantifies the effect of playing at home on the
+linear predictor of the number of goals, expected to be positive.**
+
+**Our model for the linear predictors (**$\eta_g^{H}$ **is for the goals
+scored by the home team, and is** $\eta_g^{A}$ **is for the away team)
+is the following:**
+
+$$\begin{align}
+\eta_{g}^{H}&= \beta_0+a_{home.team}+d_{away.team}+h\\
+\eta_{g}^{A}&= \beta_0+a_{away.team}+d_{home.team}
+\end{align}$$
+
+**Here** $\beta_0$ **is the intercept. In order to avoid model
+identifiability issues (for example, if we increase** $a$ **by a certain
+amount for each team, and decrease** $d$ **by the same amount, nothing
+changes), the convention is to set the attacking and defending strength
+parameter** $a_{team}$ **and** $d_{team}$ **equal to 0 for one of the
+teams (so they are no longer part of the model). This is handled
+automatically by R if you use categorical variables for this.**
+
+**Now we are going to load our dataset, implement this model in INLA,
+and then use our model for computing the posterior probability
+distribution of who will be the champion of the league after each round
+of games.**
+
+**Note that this is a very basic model that could be significantly
+improved by including more covariates.**
+
+**The code below loads the data.**
+
+```{r}
+#We load the Premier League scores dataset of season 2019/2020 
+full.data=read.csv("premier_league_2019_20.csv")
+
+head(full.data)
+
+#The code below displays the info file about the dataset from football_data_notes.txt
+#fname <- 'football_data_notes.txt'
+#s=readChar(fname, file.info(fname)$size)
+#cat(s)
+```
+
+**FTHG means full time home goals, and FTAG means full time away
+goals.**
+
+**There are 20 teams in the Premier League (you can see the list below
+for the season 2019-2020).**
+
+**Every team in the league plays twice against each other, so in total,
+there are 20\*19=380 games per season.**
+
+**The Premier League teams in 2019/20:**
+
+**Arsenal\
+Aston Villa\
+Bournemouth\
+Brighton & Hove Albion\
+Burnley\
+Chelsea\
+Crystal Palace\
+Everton\
+Leicester City\
+Liverpool  Manchester City\
+Manchester United\
+Newcastle United\
+Norwich City\*\
+Sheffield United\*\
+Southampton\
+Tottenham Hotspur\
+Watford\
+West Ham United\
+Wolverhampton Wanderers**
+
+**\* are newly promoted teams**
+
+**3.1. Implement the Poisson regression model described above in INLA on
+this dataset, using the default priors.** **Print out the summary
+statistics for the model, and discuss the results.**
+
+**Hint: you need to store the number of goals scored by the home and
+away teams in a single response vector, y. For example, you can let**
+$y_1,\ldots,y_G$ **correspond to the goals by the home teams in games**
+$1,\ldots,G$**, and** $y_{G+1},\ldots, y_{2G}$ **correspond to the goals
+by the away teams in games** $1,\ldots, G$**.\
+The other covariates should also be adjusted accordingly.**\
+**Using factors (i.e. categorical variables) is recommended.\
+Combining two lists of factors is possible by turning them into strings
+using** $\texttt{as.character}$**, then combining them, and finally
+turning them back to factors by** $\texttt{as.factor}$**.\
+The outcome variables** $y_{1},\ldots, y_{2G}$ **contain the number of
+goals team A scores against another team B (A and B depends on index**
+$i$ **of** $y_i$**).\
+The rate** $\lambda_i$ **for this variable** $y_i$ **in our Poisson
+model, and the corresponding linear predictor** $\eta_i$**, are
+controlled by the attacking strength team** $A$**, the defending
+strength of team** $B$**, and whether team** $A$ **is the home team, or
+not. This model can be described by three categorical variables**
+$\texttt{attack}$**,** $\texttt{defense}$ **and** $\texttt{home}$**,
+with INLA formula of the form**
+$$\texttt{y}\sim \texttt{attack+defense+home},$$**provided that we
+encode the names of the teams A, B and whether team A is the home team
+or not as 3 columns in a dataframe (as factors).**
+
+**3.2. The games in the Premier League happen by rounds (typically
+lasting one week), where each team plays with another one. There are 20
+teams, so 10 games per round.**\
+**Games 10(i-1) +1,..., 10 i in the dataset correspond to round i (there
+are some slight discrepancies in times, but we will ignore them here for
+simplicity).\
+At the end of each game, the winner gets 3 points, the loser gets 0, and
+if its a draw, both teams receive 1 points. Using our Poisson regression
+model, compute the posterior probability of Liverpool winning the league
+(i.e. having the most points at the end of all games) at the end of each
+round for rounds 5, 10,15,20,25,30 and 35. Plot the result.\
+[Hint: you can set the number of goals in the games played after row i
+as NA in the dataset, and then call INLA. The Predictor variables in the
+output of `inla.posterior.sample` contain samples of the linear
+predictors from the posterior, including those for the remaining games.
+You are recommended to write a separate function computing the points
+(i.e. league table) from the scores of all games.]**
+
+
