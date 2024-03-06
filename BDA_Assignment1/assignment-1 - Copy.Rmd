@@ -1,0 +1,830 @@
+---
+editor_options:
+  markdown:
+    wrap: 72
+output: pdf_document
+---
+
+**University of Edinburgh**
+
+**School of Mathematics**
+
+**Bayesian Data Analysis, 2023/2024, Semester 2**
+
+**Assignment 1**
+
+**IMPORTANT INFORMATION ABOUT THE ASSIGNMENT**
+
+**In this paragraph, we summarize the essential information about this
+assignment. The format and rules for this assignment are different from
+your other courses, so please pay attention.**
+
+**1) Deadline: The deadline for submitting your solutions to this
+assignment is 1 March 12:00 noon Edinburgh time.**
+
+**2) Format: You will need to submit your work as 2 components: a PDF
+report, and your R Markdown (.Rmd) notebook (this can be in a zip file
+if you include additional images). There will be two separate submission
+systems on Learn: Gradescope for the report in PDF format, and a Learn
+assignment for the code in Rmd format. You need to write your solutions
+into this R Markdown notebook (code in R chunks and explanations in
+Markdown chunks), and then select Knit/Knit to PDF in RStudio to create
+a PDF report.**
+
+![](knit_to_PDF.jpg){width="192"}
+
+**The compiled PDF needs to contain everything in this notebook, with
+your code sections clearly visible (not hidden), and the output of your
+code included. Reports without the code displayed in the PDF, or without
+the output of your code included in the PDF will be marked as 0, with
+the only feedback "Report did not meet submission requirements".**
+
+**You need to upload this PDF in Gradescope submission system, and your
+Rmd file in the Learn assignment submission system. You will be required
+to tag every sub question on Gradescope.**
+
+**Some key points that are different from other courses:**
+
+**a) Your report needs to contain written explanation for each question
+that you solve, and some numbers or plots showing your results.
+Solutions without written explanation that clearly demonstrates that you
+understand what you are doing will be marked as 0 irrespectively whether
+the numerics are correct or not.**
+
+**b) Your code has to be possible to run for all questions by the Run
+All in RStudio, and reproduce all of the numerics and plots in your
+report (up to some small randomness due to stochasticity of Monte Carlo
+simulations). The parts of the report that contain material that is not
+reproduced by the code will not be marked (i.e. the score will be 0),
+and the only feedback in this case will be that the results are not
+reproducible from the code.**
+
+![](run_all.jpg){width="375"}
+
+**c) Multiple Submissions are allowed BEFORE THE DEADLINE are allowed
+for both the report, and the code.\
+However, multiple submissions are NOT ALLOWED AFTER THE DEADLINE.\
+YOU WILL NOT BE ABLE TO MAKE ANY CHANGES TO YOUR SUBMISSION AFTER THE
+DEADLINE.\
+Nevertheless, if you did not submit anything before the deadline, then
+you can still submit your work after the deadline, but late penalties
+will apply. The timing of the late penalties will be determined by the
+time you have submitted BOTH the report, and the code (i.e. whichever
+was submitted later counts).**
+
+**We illustrate these rules by some examples:**
+
+**Alice has spent a lot of time and effort on her assignment for BDA.
+Unfortunately she has accidentally introduced a typo in her code in the
+first question, and it did not run using Run All in RStudio. - Alice
+will get 0 for the part of the assignments that do not run, with the
+only feedback "Results are not reproducible from the code".**
+
+**Bob has spent a lot of time and effort on his assignment for BDA.
+Unfortunately he forgot to submit his code. He will get one reminder to
+submit his code. If he does not do it, Bob will get 0 for the whole
+assignment, with the only feedback "Results are not reproducible from
+the code, as the code was not submitted."**
+
+**Charles has spent a lot of time and effort on his assignment for BDA.
+He has submitted both his code and report in the correct formats.
+However, he did not include any explanations in the report. Charles will
+get 0 for the whole assignment, with the only feedback "Explanation is
+missing."**
+
+**3) Group work: This is an INDIVIDUAL ASSIGNMENT. You can talk to your
+classmates to clarify questions, but you have to do your work
+individually and cannot copy parts from other students. Students who
+submit work that has not been done individually will be reported for
+Academic Misconduct, which can lead to severe consequences. Each
+question will be marked by a single instructor, and submissions will be
+compared by advanced software tools, so we will be able to spot students
+who copy.**
+
+**4) Piazza: During the assignments, the instructor will change Piazza
+to allow messaging the instructors only, i.e. students will not see each
+others messages and replies.**
+
+**Only questions regarding clarification of the statement of the
+problems will be answered by the instructors. The instructors will not
+give you any information related to the solution of the problems, such
+questions will be simply answered as "This is not about the statement of
+the problem so we cannot answer your question."**
+
+**THE INSTRUCTORS ARE NOT GOING TO DEBUG YOUR CODE, AND YOU ARE ASSESSED
+ON YOUR ABILITY TO RESOLVE ANY CODING OR TECHNICAL DIFFICULTIES THAT YOU
+ENCOUNTER ON YOUR OWN.**
+
+**5) Office hours: There will be one office hour per week (Wednesdays
+16:00-17:00) during the 2 weeks for this assignment. This is in JCMB
+5413. I will be happy to discuss the course/workshop materials. However,
+I will only answer questions about the assignment that require
+clarifying the statement of the problems, and will not give you any
+information about the solutions.**
+
+**6) Late submissions and extensions: UP TO A MAXIMUM OF 3 CALENDAR DAYS
+EXTENSION IS ALLOWED FOR THIS ASSIGNMENT IN THE ESC SYSTEM. You need to
+apply before the deadline.**
+
+**If you submit your solutions on Learn before the deadline, the system
+will not allow you to update it even if you have received an extension.
+There is only 1 submission allowed after the deadline.**
+
+**Students who have existing Learning Adjustments in Euclid will be
+allowed to have the same adjustments applied to this course as well, but
+they need to apply for this BEFORE THE DEADLINE on the website.**
+
+[**https://www.ed.ac.uk/student-administration/extensions-special-circumstances**](https://www.ed.ac.uk/student-administration/extensions-special-circumstances){.uri}
+
+**by clicking on "Access your learning adjustment". This will be
+approved automatically.**
+
+**Students who submit their work late will have late submission
+penalties applied by the ESC team automatically (this means that even if
+you are 1 second late because of your internet connection was slow, the
+penalties will still apply). The penalties are 5% of the total mark
+deduced for every day of delay started (i.e. one minute of delay counts
+for 1 day). The course instructors do not have any role in setting these
+penalties, we will not be able to change them.**
+
+```{r}
+rm(list = ls(all = TRUE))
+#Do not delete this!
+#It clears all variables to ensure reproducibility
+```
+
+![Ma Long. Made in China.](table_tennis.jpg)
+
+**Ping-pong, or table tennis, is a popular sport around the world. In
+this assignment, we will apply Bayesian modelling to the movement of a
+ping-pong ball.**
+
+**As explained in the paper "Optimal State Estimation of Spinning
+Ping-Pong Ball Using Continuous Motion Model" by Zhao et al., the
+physical equations describing the movement of a spinning ball in air
+without wind can be described as**
+$$\frac{d V}{d t}=k_d \|V\|V+k_m \omega\times V+g,$$ **where** $V$ **is
+the velocity of the ball (3-dimensional vector),** $\omega$ **is the
+angular velocity (3-dimensional vector),** $g$ **is the local gravity
+acceleration (3-dimensional vector),** $\times$ **refers to the cross
+product [<https://en.wikipedia.org/wiki/Cross_product>]. The constants**
+$k_d$ **and** $k_m$ **are expressed as** $$
+\begin{split}
+k_d&:=-\frac{1}{2m}C_D \rho A \\
+k_m&:=\frac{1}{2m}C_m \rho A r. 
+\end{split}
+$$ **The meaning and values of the parameters here are shown in the
+following table. ![](table1.png)**
+
+**We observe positions and velocities at times**
+$T_1, T_2,\ldots, T_n$**, and define** $\Delta_k=T_{k+1}-T_k$**. The
+simplest way to discretize this ODE is as follows(Euler-Mayurama
+discretization of the original ODE, see equation (2) of "Optimal State
+Estimation of Spinning Ping-Pong Ball Using Continuous Motion Model"),**
+
+$$
+\left[\begin{matrix}x(k+1)\\ y(k+1) \\ z(k+1) \\ v_x(k+1) \\ v_y(k+1) \\ v_z(k+1)\end{matrix}\right]=
+\left[\begin{matrix}x(k)\\ y(k) \\ z(k) \\ v_x(k) \\ v_y(k) \\ v_z(k)\end{matrix}\right]+\left[\begin{matrix}v_x(k)\\ v_y(k) \\ v_z(k) \\ -k_d \|V(k)\|v_x(k)+k_m(\omega_y v_z(k)-\omega_z v_y(k)) \\ -k_d \|V(k)\|v_y(k)+k_m(\omega_z v_x(k)-\omega_x v_z(k)) \\ -k_d \|V(k)\|v_z(k)+k_m(\omega_x v_y(k)-\omega_y v_x(k))-g\end{matrix}\right]\cdot \Delta_k,
+$$ **where** $\|V(k)\|=\sqrt{v_x(k)^2+v_y(k)^2+v_z(k)^2}$ **is the
+magnitude of velocity at time** $T_k$**.**
+
+**In this question, we are going to assume a similar model, but with
+additional Gaussian model noise, and also assume that the position and
+velocity observations are also subject to observation noise. Hence, our
+model equations are as follows,**$$
+\left[\begin{matrix}x(k+1)\\ y(k+1) \\ z(k+1) \\ v_x(k+1) \\ v_y(k+1) \\ v_z(k+1)\end{matrix}\right]\sim N\left[
+\left[\begin{matrix}x(k)\\ y(k) \\ z(k) \\ v_x(k) \\ v_y(k) \\ v_z(k)\end{matrix}\right]+\left[\begin{matrix}v_x(k)\\ v_y(k) \\ v_z(k) \\ -k_d \|V(k)\|v_x(k)+k_m(\omega_y v_z(k)-\omega_z v_y(k)) \\ -k_d \|V(k)\|v_y(k)+k_m(\omega_z v_x(k)-\omega_x v_z(k)) \\ -k_d \|V(k)\|v_z(k)+k_m(\omega_x v_y(k)-\omega_y v_x(k))-g\end{matrix}\right]\cdot \Delta_k,\Sigma\right],
+$$
+
+**where**
+$\Sigma=Diag[\tau_{pos}^{-1},\tau_{pos}^{-1},\tau_{pos}^{-1},\tau_{vel}^{-1},\tau_{vel}^{-1},\tau_{vel}^{-1}]$
+**is a diagonal covariance matrix depending on parameters** $\tau_{pos}$
+**and** $\tau_{vel}$**.**
+
+**The observation model is the following,**$$
+\left[\begin{matrix}x^o(k)\\ y^o(k) \\ z^o(k) \\ v_x^o(k) \\ v_y^o(k) \\ v_z^o(k)\end{matrix}\right]\sim N\left[
+\left[\begin{matrix}x(k)\\ y(k) \\ z(k) \\ v_x(k) \\ v_y(k) \\ v_z(k)\end{matrix}\right],\Sigma^{o}\right],
+$$
+
+**where**
+$\Sigma^o=Diag[(\tau_{pos}^o)^{-1},(\tau_{pos}^o)^{-1},(\tau_{pos}^o)^{-1},(\tau_{vel}^o)^{-1},(\tau_{vel}^o)^{-1},(\tau_{vel}^o)^{-1}]$
+
+**Q1) [10 marks]**
+
+**a) [5 marks] Draw a DAG representation of this model (this can be done
+on a tablet, or draw it on a piece of paper and then take a picture or
+scan). Images can be included in R Markdown, as explained in
+[<https://www.earthdatascience.org/courses/earth-analytics/document-your-science/add-images-to-rmarkdown-report/>].**
+
+![A DAG representation of the above model.](modelDAG.jpg)
+
+**b) [5 marks] For the initial values, choose priors of the
+form**$x(1)\sim N(0,1), y(1)\sim N(0, 1), z(1)\sim N(0,1)$,
+$v_x(1)\sim N(0,25), v_y(1)\sim N(0,25), v_z(1)\sim N(0,25).$**Choose
+your own priors for** $\tau_{pos}$**,** $\tau_{vel}$**,**
+$\tau_{pos}^{o}$**,** $\tau_{vel}^{o}$ **,** $\omega_{x}$**,**
+$\omega_{y}$**,** $\omega_z$**. Explain your choices.**
+
+**If you use informative priors, please cite the source of the
+information you used precisely (i.e. web link, or precise page number in
+a paper. Saying Google search said " " will not suffice).**
+
+-   $\omega_x$, $\omega_y$, $\omega_z$: For angular velocities of the
+    three dimensions, since we have little information about the
+    launching details and the angular velocity and direction of the
+    ball, we choose uninformative normal distributions for modelling,
+    which is a proper consideration under this randomized situation, and
+    set the means as $0$. In addition, since the measured ball spins
+    among players on national team level which used maximum strength to
+    hit a defined target is $113.9s^{-1}$ [1], we set the standard
+    deviations as fairly high values, $100$, i.e.
+    $\omega_x\sim N(0, 100^2)$, $\omega_y\sim N(0, 100^2)$, and
+    $\omega_z\sim N(0, 100^2)$, to ensure the dataset can have a larger
+    impact on the estimation than the priors.
+
+-   $\tau_{pos}$, $\tau_{vel}$, $\tau_{pos}^o$, $\tau_{vel}^o$: we set
+    uninformative gamma priors to the precisions, and choose $0.1$ for
+    both the shape and scale parameters (mass concentrated near 0), i.e.
+    $\tau_{pos}\sim \gamma(0.1, 0.1)$,
+    $\tau_{vel}\sim \gamma(0.1, 0.1)$,
+    $\tau_{pos}^o\sim \gamma(0.1, 0.1)$,
+    $\tau_{vel}^o\sim \gamma(0.1, 0.1)$.
+
+**References**
+
+[1] Dittrich, A., Schneider, J., Guist, S., Gurtler, N., Ott, H.,
+Steinbrenner, T., ... & Buchler, D. (2023, May). AIMY: An open-source
+table tennis ball launcher for versatile and high-fidelity trajectory
+generation. In 2023 IEEE International Conference on Robotics and
+Automation (ICRA) (pp. 3058-3064). IEEE. (line 6, paragraph 4, page 1)
+
+**Q2) [10 marks] In this question, we are going to fit the model of Q1)
+on a real dataset from [Table Tennis Ball Trajectories with Spin -
+Edmond (mpg.de)]. In this dataset, there are many recorded trajectories
+of ping-pong balls shot out by a table tennis launcher robot. We will
+only use one trajectory here.**
+
+**First, we load the dataset, and show a 3D plot of the trajectory.**
+
+```{r}
+# If you do not have BiocManager and rhdf5 packages installed, you need to install these first. 
+# install.packages("BiocManager")
+# BiocManager::install("rhdf5")
+library(rhdf5)
+# This command lists all the information in this dataset.
+# Please do not include it in the knitted PDF, as it takes 20+ pages
+# h5ls("MN5008_grid_data_equal_speeds.hdf5",)
+n = 60;
+
+xyz.obs <- h5read("MN5008_grid_data_equal_speeds.hdf5", "/originals/405/positions")[, 2: (n + 1)];  # (3, 60)
+# Read positions of simulation number 405
+xo = xyz.obs[1, ];
+yo = xyz.obs[2, ];
+zo = xyz.obs[3, ];
+
+vxvyvz.obs <- h5read("MN5008_grid_data_equal_speeds.hdf5", "/originals/405/velocities")[, 2: (n + 1)];  # (3, 60)
+#Read velocities of simulation number 405
+vxo = vxvyvz.obs[1, ];
+vyo = vxvyvz.obs[2, ];
+vzo = vxvyvz.obs[3, ];
+
+T <- h5read("MN5008_grid_data_equal_speeds.hdf5", "/originals/405/time_stamps")[2: (n + 1)];  # (60)
+#Read time points of observations
+
+library(rgl)
+rgl_init <- function(new.device=FALSE, bg="white", width=640) {
+  if(new.device | rgl.cur() == 0) {
+    open3d()
+    par3d(windowRect=50 + c(0, 0, width, width))
+    bg3d(color=bg)
+  }
+  clear3d(type=c("shapes", "bboxdeco"))
+  view3d(theta=15, phi=20, zoom=0.7)
+}
+
+rgl_init()
+spheres3d(xo, yo, zo, r=0.05, color="yellow")  # Scatter plot
+bbox3d(color="#333377")
+```
+
+**Implement the model explained in Q1) in JAGS or STAN, with the data
+here referring to the observations**
+$x^{o},y^{o}, z^{o}, v_x^{o}, v_y^{o},v_z^{o}$**.**
+
+**Please treat** $k_m$ **and** $k_d$ **as fixed constants that can be
+computed based on the equations in Q1).**
+
+**Evaluate the Gelman-Rubin diagnostics for model parameters**
+$\tau_{pos}$**,** $\tau_{vel}$**,** $\tau_{pos}^{o}$**,**
+$\tau_{vel}^{o}$ **,** $\omega_{x}$**,** $\omega_{y}$**,** $\omega_z$**,
+as well as their effective sample sizes. Choose the burn-in period,
+number of chains, and number of iterations such that the effective
+sample size is at least 1000 in all of these parameters.**
+
+**Include the summary statistics from these parameters. Discuss the
+results.**
+
+**Plot the posterior density of the angular velocity parameters
+(**$\omega_{x}$**,** $\omega_{y}$**,** $\omega_z$**). Discuss the
+results.**
+
+```{r}
+library(rjags)
+
+model_string <- "
+model {
+  tau.p ~ dgamma(a.tau, b.tau)
+  tau.po ~ dgamma(a.tau, b.tau)
+  tau.v ~ dgamma(a.tau, b.tau)
+  tau.vo ~ dgamma(a.tau, b.tau)
+  
+  x[1] ~ dnorm(mup1, taup1)
+  y[1] ~ dnorm(mup1, taup1)
+  z[1] ~ dnorm(mup1, taup1)
+  vx[1] ~ dnorm(muv1, tauv1)
+  vy[1] ~ dnorm(muv1, tauv1)
+  vz[1] ~ dnorm(muv1, tauv1)
+  
+  wx ~ dnorm(muw, tauw)
+  wy ~ dnorm(muw, tauw)
+  wz ~ dnorm(muw, tauw)
+  
+  for (i in 1: (n - 1)) {
+    delta[i] = t[i + 1] - t[i]
+    V[i] = sqrt(vx[i] ** 2 + vy[i] ** 2 + vz[i] ** 2)
+    x[i + 1] ~ dnorm(x[i] + delta[i] * vx[i], tau.p)
+    y[i + 1] ~ dnorm(y[i] + delta[i] * vy[i], tau.p)
+    z[i + 1] ~ dnorm(z[i] + delta[i] * vz[i], tau.p)
+    vx[i + 1] ~ dnorm(vx[i] + delta[i] * (- kd * V[i] * vx[i] + km * (wy * vz[i] - wz * vy[i])), tau.v)
+    vy[i + 1] ~ dnorm(vy[i] + delta[i] * (- kd * V[i] * vy[i] + km * (wz * vx[i] - wx * vz[i])), tau.v)
+    vz[i + 1] ~ dnorm(vz[i] + delta[i] * (- kd * V[i] * vz[i] + km * (wx * vy[i] - wy * vx[i]) - g), tau.v)
+  }
+  
+  for (i in 1: n) {
+    x.o[i] ~ dnorm(x[i], tau.po)
+    y.o[i] ~ dnorm(y[i], tau.po)
+    z.o[i] ~ dnorm(z[i], tau.po)
+    vx.o[i] ~ dnorm(vx[i], tau.vo)
+    vy.o[i] ~ dnorm(vy[i], tau.vo)
+    vz.o[i] ~ dnorm(vz[i], tau.vo)
+    
+    xrep.o[i] ~ dnorm(x[i], tau.po)
+    yrep.o[i] ~ dnorm(y[i], tau.po)
+    zrep.o[i] ~ dnorm(z[i], tau.po)
+    vxrep.o[i] ~ dnorm(vx[i], tau.vo)
+    vyrep.o[i] ~ dnorm(vy[i], tau.vo)
+    vzrep.o[i] ~ dnorm(vz[i], tau.vo)
+  }
+  
+}
+"
+
+m = 0.0027; g = 9.827; r = 0.02; rho = 1.29; A = 0.001256; CD = 0.456; Cm = 1.0
+kd = CD * rho * A / (2 * m)
+km = Cm * rho * A * r / (2 * m)
+
+mup1 = 0; taup1 = 1; muv1 = 0; tauv1 = 0.04
+at = 0.1; bt = 0.1; muw = 0; tauw = 1e-4
+
+num.chains = 3
+
+data <- list(x.o=xo, y.o=yo, z.o=zo, vx.o=vxo, vy.o=vyo, vz.o=vzo, t=T, n=n,
+             a.tau=at, b.tau=bt, muw=muw, tauw=tauw,
+             mup1=mup1, taup1=taup1, muv1=muv1, tauv1=tauv1,
+             kd=kd, km=km, g=g
+             )
+model <- jags.model(textConnection(model_string), data=data, n.chains=num.chains)  # add init
+```
+
+```{r}
+update(model, n.iter=1000, progress.bar="none")
+res <- coda.samples(model, n.iter=30000, variable.names=c("tau.p", "tau.v", "tau.po", "tau.vo", "wx", "wy", "wz"), progress.bar="none")
+summary(res)
+```
+
+```{r}
+par(mfrow=c(3, 3))
+par(mar=c(2, 2, 2, 2))
+gelman.plot(res)
+```
+
+```{r}
+gelman.diag(res)
+```
+
+```{r}
+effectiveSize(res[[1]])  # only in chain 1 or all chains?
+```
+
+```{r}
+res.mat <- as.matrix(res)
+par(mfrow=c(3, 1))
+par(mar=c(2, 2, 2, 2))
+plot(density(res.mat[, 5]), main="Posterior density of the x-dimension angular velocity omega_x")
+plot(density(res.mat[, 6]), main="Posterior density of the y-dimension angular velocity omega_y")
+plot(density(res.mat[, 7]), main="Posterior density of the z-dimension angular velocity omega_z")
+```
+
+Explanation: (Write your explanation here)
+
+**Q3)[10 marks] Perform posterior predictive checks on the model in Q2).
+Explain your choices of test functions, and interpret the results.**
+
+-   Posterior predictive checks
+
+    ```{r}
+    res.rep <- coda.samples(model, n.iter=50000, variable.names=c("xrep.o", "yrep.o", "zrep.o", "vxrep.o", "vyrep.o", "vzrep.o"), progress.bar="none")
+
+    res.rep <- as.matrix(res.rep)
+
+    vxres.rep <- res.rep[, 1: n]
+    vyres.rep <- res.rep[, 1: n + n]
+    vzres.rep <- res.rep[, 1: n + 2 * n]
+    xres.rep <- res.rep[, 1: n + 3 * n]
+    yres.rep <- res.rep[, 1: n + 4 * n]
+    zres.rep <- res.rep[, 1: n + 5 * n]
+
+    require(fBasics)
+
+    repanalysis <- function(res.ori, res.rep, str) {
+      rep.min <- apply(res.rep, 1, min)
+      rep.max <- apply(res.rep, 1, max)
+      rep.med <- apply(res.rep, 1, median)
+      rep.kurt <- apply(res.rep, 1, kurtosis)
+      rep.skew <- apply(res.rep, 1, skewness)
+      
+      hist(rep.min, col="gray40", main=paste("min of", str))
+      abline(v=min(res.ori), col="red", lwd=2)
+      hist(rep.max, col="gray40", main=paste("max of", str))
+      abline(v=max(res.ori), col="red", lwd=2)
+      hist(rep.med, col="gray40",main=paste("median of", str))
+      abline(v=median(res.ori), col="red", lwd=2)
+      hist(rep.kurt, col="gray40", main=paste("kirtosis of", str))
+      abline(v=kurtosis(res.ori), col="red", lwd=2)
+      hist(rep.skew, col="gray40", main=paste("skewness of", str))
+      abline(v=skewness(res.ori), col="red", lwd=2)
+    }
+    ```
+
+    ```{r}
+    par(mfrow=c(5, 3))
+    par(mar=c(2, 2, 2, 2))
+    repanalysis(xo, xres.rep, "xo")
+    repanalysis(yo, yres.rep, "yo")
+    repanalysis(zo, zres.rep, "zo")
+    ```
+
+    ```{r}
+    par(mfrow=c(5, 3))
+    par(mar=c(2, 2, 2, 2))
+    repanalysis(vxo, vxres.rep, "vxo")
+    repanalysis(vyo, vyres.rep, "vyo")
+    repanalysis(vzo, vzres.rep, "vzo")
+    ```
+
+-   DIC criteria
+
+    ```{r}
+    dic.samples(model, n.iter=30000)
+    ```
+
+**Do a plot of the** $x$ **coordinate of the trajectory against the**
+$z$ **coordinate, and include at least 100 of the posterior replicates
+on the same plot (see Line 351 in the code of Lecture 3 for a similar
+plot).** **Discuss the results.**
+
+```{r}
+plot(zres.rep[1, ], xres.rep[1, ], col="lightskyblue1", xlab="z coordinate", ylab="x coordinate", xlim=c(0.8, 1.6), ylim=c(1.4, 3.1))
+for(i in 2: 1000){
+  lines(zres.rep[i, ], xres.rep[i, ], col="lightskyblue1")  
+}
+lines(zo, xo, col="black", lwd=4)
+```
+
+**Q4)[10 marks] In this question, we are will use the model to predict
+the trajectory for the next 6 time steps, and compare it to the observed
+values. First, we load the data including the next 6 steps (note that
+these observations cannot be used for prediction, only for testing).**
+
+```{r}
+n = 66;
+xyz.obs <- h5read("MN5008_grid_data_equal_speeds.hdf5", "/originals/405/positions")[, 2: (n + 1)]
+#Read positions of simulation number 405
+xo = xyz.obs[1, ]
+yo = xyz.obs[2, ]
+zo = xyz.obs[3, ]
+
+vxvyvz.obs <- h5read("MN5008_grid_data_equal_speeds.hdf5", "/originals/405/velocities")[, 2: (n + 1)]
+#Read velocities of simulation number 405
+vxo = vxvyvz.obs[1, ]
+vyo = vxvyvz.obs[2, ]
+vzo = vxvyvz.obs[3, ]
+
+T <- h5read("MN5008_grid_data_equal_speeds.hdf5", "/originals/405/time_stamps")[2: (n + 1)]
+```
+
+**Explain how you can implement a posterior predictive model for the
+position and velocity variables at the next 6 time steps, i.e. T[61],
+T[62],...,T[66]. Do not pass along the position and velocity
+observations at these time points to the model in the data (you can
+replace them with NA if using JAGS). Implement this in JAGS or Stan.
+Compute the posterior predictive mean of all position and velocity
+components at these new time steps, and compare them with their observed
+values. Compute the Euclidean distance between the observed position and
+the posterior predictive mean of the position variables at the next 6
+time steps, and do the same for the velocities. Discuss the predictive
+accuracy of this Bayesian model.**
+
+```{r}
+xyz.obs.pred <- cbind(xyz.obs[, 2: (n - 5)], matrix(NA, nrow=3, ncol=6))
+vxvyvz.obs.pred <- cbind(vxvyvz.obs[, 2: (n - 5)], matrix(NA, nrow=3, ncol=6))
+
+xo.pr = xyz.obs.pred[1, ]
+yo.pr = xyz.obs.pred[2, ]
+zo.pr = xyz.obs.pred[3, ]
+vxo.pr = vxvyvz.obs.pred[1, ]
+vyo.pr = vxvyvz.obs.pred[2, ]
+vzo.pr = vxvyvz.obs.pred[3, ]
+
+data.pred <- list(x.o=xo.pr, y.o=yo.pr, z.o=zo.pr,
+                  vx.o=vxo.pr, vy.o=vyo.pr, vz.o=vzo.pr, t=T, n=n,
+                  a.tau=at, b.tau=bt, muw=muw, tauw=tauw,
+                  mup1=mup1, taup1=taup1, muv1=muv1, tauv1=tauv1,
+                  kd=kd, km=km, g=g
+                  )
+num.chains = 1
+
+model.pr <- jags.model(textConnection(model_string), data=data.pred, n.chains=num.chains)
+
+update(model.pr, n.iter=1000)
+pred.varlist <- c("x.o[61:66]", "y.o[61:66]", "z.o[61:66]",
+               "vx.o[61:66]", "vy.o[61:66]", "vz.o[61:66]")
+res.pr <- coda.samples(model.pr, variable.names=pred.varlist, n.iter=30000)
+```
+
+```{r}
+res.mean <- apply(res.pr[[1]], 2, mean)
+vxo.pr.mean = res.mean[1: 6]
+vyo.pr.mean = res.mean[7: 12]
+vzo.pr.mean = res.mean[13: 18]
+xo.pr.mean = res.mean[19: 24]
+yo.pr.mean = res.mean[25: 30]
+zo.pr.mean = res.mean[31: 36]
+
+cat("The x coordinate of the next 6 time steps are:", paste(xo.pr.mean), "\n")
+cat("The y coordinate of the next 6 time steps are:", paste(yo.pr.mean), "\n")
+cat("The z coordinate of the next 6 time steps are:", paste(zo.pr.mean), "\n")
+cat("The velocity of x coordinate of the next 6 time steps are:", paste(xo.pr.mean), "\n")
+cat("The velocity of y coordinate of the next 6 time steps are:", paste(yo.pr.mean), "\n")
+cat("The velocity of z coordinate of the next 6 time steps are:", paste(zo.pr.mean), "\n")
+
+# Euclidean distance
+cat("The Euclidean distances of positions of the next 6 time steps are:", sqrt((xo.pr.mean - xo[61: 66]) ** 2 + (yo.pr.mean - yo[61: 66]) ** 2 + (zo.pr.mean - zo[61: 66]) ** 2), "\n")
+cat("The Euclidean distances of velocities of the next 6 time steps are:", sqrt((vxo.pr.mean - vxo[61: 66]) ** 2 + (vyo.pr.mean - vyo[61: 66]) ** 2 + (vzo.pr.mean - vzo[61: 66]) ** 2), "\n")
+
+```
+
+**Explanation: (Write your explanation here)**
+
+**Q5)[10 marks] In this question, we will try to improve the model by
+using a different numerical discretization of the ODE**
+$$\frac{d X}{dt}=V, \quad \frac{d V}{d t}=k_d \|V\|V+k_m \omega\times V+g.$$
+**In Q1), we have used the Euler-Mayurama scheme, and added some model
+and observation noise.**
+
+**In this question, you are expected to choose a different scheme (see
+e.g. Lecture 4 for some examples, or you could use the one based on the
+analytical solution of the ODE described in the paper "Optimal State
+Estimation of Spinning Ping-Pong Ball Using Continuous Motion Model").
+You should still allow for model and observation noises. You can also
+consider different covariance matrices, such as ones that allow
+correlation between the model noise for** $x$ **and** $v_x$**, and
+similarly, between the observation noise of** $x$ **and** $v_x$**, etc.
+(such models would have additional parameters related to the amount of
+correlation). Describe the motivation for your scheme. Implement the new
+model similarly to Q2) (ESS should be at least 1000 for all model
+parameters), do the posterior predictive checks from Q3), and compare
+its predictive performance on the next 6 datapoints as in Q4). Discuss
+the results.**
+
+```{r}
+library(rjags)
+model_string2 <- "
+model {
+  tau.p ~ dgamma(a.tau, b.tau)
+  tau.po ~ dgamma(a.tau, b.tau)
+  tau.v ~ dgamma(a.tau, b.tau)
+  tau.vo ~ dgamma(a.tau, b.tau)
+  tau.pv ~ dgamma(a.tau, b.tau)
+  tau.pvo ~ dgamma(a.tau, b.tau)
+  
+  for (i in 1: 6) {
+    for (j in 1: 6) {
+      Cov[i, j] = 0
+    }
+  }
+  
+  Cov[1, 1] = tau.p
+  Cov[1, 4] = tau.pv
+  Cov[2, 2] = tau.p
+  Cov[2, 5] = tau.pv
+  Cov[3, 3] = tau.p
+  Cov[3, 6] = tau.pv
+  Cov[4, 1] = tau.pv
+  Cov[4, 4] = tau.v
+  Cov[5, 2] = tau.pv
+  Cov[5, 5] = tau.v
+  Cov[6, 3] = tau.pv
+  Cov[6, 6] = tau.v
+  
+  for (i in 1: 6) {
+    for (j in 1: 6) {
+      Covo[i, j] = 0
+    }
+  }
+  
+  Covo[1, 1] = tau.po
+  Covo[1, 4] = tau.pvo
+  Covo[2, 2] = tau.po
+  Covo[2, 5] = tau.pvo
+  Covo[3, 3] = tau.po
+  Covo[3, 6] = tau.pvo
+  Covo[4, 1] = tau.pvo
+  Covo[4, 4] = tau.vo
+  Covo[5, 2] = tau.pvo
+  Covo[5, 5] = tau.vo
+  Covo[6, 3] = tau.pvo
+  Covo[6, 6] = tau.vo
+  
+  x[1] ~ dnorm(mup1, taup1)
+  y[1] ~ dnorm(mup1, taup1)
+  z[1] ~ dnorm(mup1, taup1)
+  vx[1] ~ dnorm(muv1, tauv1)
+  vy[1] ~ dnorm(muv1, tauv1)
+  vz[1] ~ dnorm(muv1, tauv1)
+  
+  wx ~ dnorm(muw, tauw)
+  wy ~ dnorm(muw, tauw)
+  wz ~ dnorm(muw, tauw)
+  
+  for (i in 1: (n - 1)) {
+    delta[i] = t[i + 1] - t[i]
+    V[i] = sqrt(vx[i] ** 2 + vy[i] ** 2 + vz[i] ** 2)
+    
+    mu[i, 1: 6] = c(x[i] + delta[i] * vx[i],
+                    y[i] + delta[i] * vy[i],
+                    z[i] + delta[i] * vz[i],
+                    vx[i] + delta[i] * (- kd * V[i] * vx[i] + km * (wy * vz[i] - wz * vy[i])),
+                    vy[i] + delta[i] * (- kd * V[i] * vy[i] + km * (wz * vx[i] - wx * vz[i])),
+                    vz[i] + delta[i] * (- kd * V[i] * vz[i] + km * (wx * vy[i] - wy * vx[i]) - g))
+    
+    res[i, 1: 6] ~ dmnorm(mu[i, ], Cov)
+    
+    x[i + 1] = res[i, 1]
+    y[i + 1] = res[i, 2]
+    z[i + 1] = res[i, 3]
+    vx[i + 1] = res[i, 4]
+    vy[i + 1] = res[i, 5]
+    vz[i + 1] = res[i, 6]
+  }
+  
+  for (i in 1: n) {
+    muo[i, 1: 6] = c(x[i], y[i], z[i], vx[i], vy[i], vz[i])
+    
+    reso[i, 1: 6] ~ dmnorm(muo[i, ], Covo)
+    
+    x.o[i] = reso[i, 1]
+    y.o[i] = reso[i, 2]
+    z.o[i] = reso[i, 3]
+    vx.o[i] = reso[i, 4]
+    vy.o[i] = reso[i, 5]
+    vz.o[i] = reso[i, 6]
+  }
+  
+}
+"
+
+m = 0.0027; g = 9.827; r = 0.02; rho = 1.29; A = 0.001256; CD = 0.456; Cm = 1.0
+kd = CD * rho * A / (2 * m)
+km = Cm * rho * A * r / (2 * m)
+
+mup1 = 0; taup1 = 1; muv1 = 0; tauv1 = 0.04
+at = 0.1; bt = 0.1; muw = 0; tauw = 1e-4
+
+num.chains = 3
+
+data <- list(x.o=xo, y.o=yo, z.o=zo, vx.o=vxo, vy.o=vyo, vz.o=vzo, t=T, n=n,
+             a.tau=at, b.tau=bt, muw=muw, tauw=tauw,
+             mup1=mup1, taup1=taup1, muv1=muv1, tauv1=tauv1,
+             kd=kd, km=km, g=g
+             )
+model <- jags.model(textConnection(model_string2), data=data, n.chains=num.chains)
+```
+
+```{r}
+library(rjags)
+model_string2 <- "
+model {
+  tau.p ~ dgamma(a.tau, b.tau)
+  tau.po ~ dgamma(a.tau, b.tau)
+  tau.v ~ dgamma(a.tau, b.tau)
+  tau.vo ~ dgamma(a.tau, b.tau)
+  tau.pv ~ dgamma(a.tau, b.tau)
+  tau.pvo ~ dgamma(a.tau, b.tau)
+  
+  for (i in 1: 6) {
+    for (j in 1: 6) {
+      Cov[i, j] = 0
+    }
+  }
+  
+  Cov[1, 1] = tau.p
+  Cov[1, 4] = tau.pv
+  Cov[2, 2] = tau.p
+  Cov[2, 5] = tau.pv
+  Cov[3, 3] = tau.p
+  Cov[3, 6] = tau.pv
+  Cov[4, 1] = tau.pv
+  Cov[4, 4] = tau.v
+  Cov[5, 2] = tau.pv
+  Cov[5, 5] = tau.v
+  Cov[6, 3] = tau.pv
+  Cov[6, 6] = tau.v
+  
+  for (i in 1: 6) {
+    for (j in 1: 6) {
+      Covo[i, j] = 0
+    }
+  }
+  
+  Covo[1, 1] = tau.po
+  Covo[1, 4] = tau.pvo
+  Covo[2, 2] = tau.po
+  Covo[2, 5] = tau.pvo
+  Covo[3, 3] = tau.po
+  Covo[3, 6] = tau.pvo
+  Covo[4, 1] = tau.pvo
+  Covo[4, 4] = tau.vo
+  Covo[5, 2] = tau.pvo
+  Covo[5, 5] = tau.vo
+  Covo[6, 3] = tau.pvo
+  Covo[6, 6] = tau.vo
+  
+  res[1, 1] ~ dnorm(mup1, taup1)
+  res[1, 2] ~ dnorm(mup1, taup1)
+  res[1, 3] ~ dnorm(mup1, taup1)
+  res[1, 4] ~ dnorm(muv1, tauv1)
+  res[1, 5] ~ dnorm(muv1, tauv1)
+  res[1, 6] ~ dnorm(muv1, tauv1)
+  
+  wx ~ dnorm(muw, tauw)
+  wy ~ dnorm(muw, tauw)
+  wz ~ dnorm(muw, tauw)
+  
+  for (i in 1: (n - 1)) {
+    delta[i] = t[i + 1] - t[i]
+    V[i] = sqrt(res[i, 4] ** 2 + res[i, 5] ** 2 + res[i, 6] ** 2)
+    
+    mu[i, 1: 6] = c(res[i, 1] + delta[i] * res[i, 4],
+                    res[i, 2] + delta[i] * res[i, 5],
+                    res[i, 3] + delta[i] * res[i, 6],
+                    res[i, 4] + delta[i] * (- kd * V[i] * res[i, 4] + km * (wy * res[i, 6] - wz * res[i, 5])),
+                    res[i, 5] + delta[i] * (- kd * V[i] * res[i, 5] + km * (wz * res[i, 4] - wx * res[i, 6])),
+                    res[i, 6] + delta[i] * (- kd * V[i] * res[i, 6] + km * (wx * res[i, 5] - wy * res[i, 4]) - g))
+    
+    res[i + 1, 1: 6] ~ dmnorm(mu[i, ], Cov)
+  }
+  
+  for (i in 1: n) {
+    reso[i, 1: 6] ~ dmnorm(res[i, ], Covo)
+  }
+  
+}
+"
+
+m = 0.0027; g = 9.827; r = 0.02; rho = 1.29; A = 0.001256; CD = 0.456; Cm = 1.0
+kd = CD * rho * A / (2 * m)
+km = Cm * rho * A * r / (2 * m)
+
+mup1 = 0; taup1 = 1; muv1 = 0; tauv1 = 0.04
+at = 0.1; bt = 0.1; muw = 0; tauw = 1e-4
+
+reso = cbind(xo, yo, zo, vxo, vyo, vzo)
+
+num.chains = 3
+
+data <- list(reso=reso, t=T, n=n,
+             a.tau=at, b.tau=bt, muw=muw, tauw=tauw,
+             mup1=mup1, taup1=taup1, muv1=muv1, tauv1=tauv1,
+             kd=kd, km=km, g=g
+             )
+model <- jags.model(textConnection(model_string2), data=data, n.chains=num.chains)
+```
+
+```{r}
+update(model2, n.iter=1000, progress.bar="none")
+res2 <- coda.samples(model2, n.iter=30000, variable.names=c("tau.p", "tau.v", "tau.po", "tau.vo", "tau.pv", "tau.pvo", "wx", "wy", "wz"), progress.bar="none")
+summary(res2)
+```
+
+**Explanation: (Write your explanation here)**

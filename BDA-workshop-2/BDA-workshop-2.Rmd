@@ -1,0 +1,884 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+**University of Edinburgh**
+
+**School of Mathematics**
+
+**Bayesian Data Analysis, 2023/2024, Semester 2**
+
+**Workshop 2: Introduction to JAGS**
+
+**Note**: Before starting this practical, you might want to spend some
+time looking at the JAGS examples we have discussed during Lecture 3. If
+you already read them, then go directly to question 1. The code below
+loads JAGS.
+
+```{r}
+library(rjags)
+#If it ran correctly, you should see 
+#Loading required package: coda
+#Linked to JAGS 4.3.1
+#Loaded modules: basemod,bugs
+```
+
+**1. Simple linear regression with robustification**
+
+**Winning Olympic Men's Long Jump Distances (adapted from Witmer,
+2017)**
+
+**The data are the winning men's long jump distances (m) from 1900
+through 2008. You will fit a linear regression of the distances as a
+function of Olympic year:** $$\begin{aligned}
+Jump & = & \beta_0 + \beta_1 \mbox{Year} + \epsilon\end{aligned}$$
+**three different ways: standard frequentist approach, a Bayesian
+approach assuming normal errors, and a Bayesian approach assuming a**
+$t$ **distribution for errors.**
+
+**Run the following commands in `R` to begin (this will install and load
+the package Stat2Data and load the Long Jump dataset).**
+
+```{r}
+require("Stat2Data")
+#If you don't have this, run install.packages("Stat2Data")
+library(Stat2Data)
+data("LongJumpOlympics")   #Makes the dataset available in this R session
+Jump <- LongJumpOlympics$Gold
+Year <- LongJumpOlympics$Year
+```
+
+**1.1. We start by carrying out some exploratory data analysis. Plot
+Jump vs Year. What does the relationship look like?**
+
+```{r}
+plot(Year, Jump, main="Winning men's long jump distance for each year")
+```
+
+**1.2. Fit a simple linear regression on Jump against Year using the
+`lm` function, and make a plot of the data with the fitted line overlaid
+using the `abline` function.**
+
+```{r}
+model.l <- lm(Jump ~ Year)
+names(model.l)
+summary(model.l)
+plot(Year, Jump, main="Winning men's long jump distance for each year", pch=19, col="grey40")
+abline(coef=model.l$coefficients, col="red")
+```
+
+**1.3. Based on this model, every 4 years we would expect the jump
+distance to change by what amount?**
+
+```{r}
+cat("The changing amount of distance every 4 years will be: ", 4 * model.l$coefficients[2])
+```
+
+**1.4. Plot the residuals against Year (using the `residuals` function).
+One year stands out, which one is it?**
+
+```{r}
+resid <- resid(model.l)
+resid
+plot(Year, resid, main="residuals vs. Year", pch=19, col="grey40")
+abline(h=0)
+```
+
+**1.5. For a more detailed residual analysis, type `par(mfrow=c(2,2))`,
+and use the `plot` function operating on the `lm` object (you'll see 4
+plots).**
+
+```{r}
+par(mfrow=c(2, 2))
+plot(model.l)
+```
+
+**1.6. Remove the outlier from the data set and refit the model, then
+recompute the above residual diagnostics. What do you observe?**
+
+```{r}
+outlier.ind <- which(resid == max(resid))
+Jump.ro <- Jump[-outlier.ind]
+Year.ro <- Year[-outlier.ind]
+model.l.ro <- lm(Jump.ro ~ Year.ro)
+summary(model.l.ro)
+
+resid.ro <- residuals(model.l.ro)
+plot(Year.ro, resid.ro, main="residuals vs. Year", pch=19, col="grey40")
+abline(h=0)
+
+par(mfrow=c(2, 2))
+plot(model.l.ro)
+```
+
+**1.7. Carry out a Bayesian linear regression analysis using `rjags`. As
+in the frequentist case assume** $\epsilon$ $\sim$ Normal(0,
+$\sigma^2$). Use the following priors for the three parameters:
+$$\begin{aligned}
+\beta_0, \beta_1 & \sim & \mbox{Normal} \left ( \mu_0=0, \tau_0=0.001 \right ) \\
+\tau & \sim & \mbox{Gamma} \left ( a=0.1, b=0.1 \right )
+\end{aligned}$$
+
+**Write the *model* statement, which includes the likelihood calculation
+and the prior distribution. Include a calculation of**
+$\sigma = 1/\sqrt{\tau}$.
+
+```{r}
+model_string <- "
+model {
+  b0 ~ dnorm(mu0, tau0)
+  b1 ~ dnorm(mu0, tau0)
+  
+  tau ~ dgamma(a, b)
+  
+  sigma = 1 / sqrt(tau)
+  
+  for (i in 1: n) {
+    mu[i] = b0 + b1 * Year[i]
+    Jump[i] ~ dnorm(mu[i], tau)
+  }
+}
+"
+```
+
+**1.8. Create an `R` object for the data, which includes Jump, Year,**
+$n$**=26 and the values of the prior hyperparameters** $\mu_0$**,**
+$\tau_0$**,** $a$ **and** $b$**.**
+
+```{r}
+data <- list(Jump=Jump, Year=Year, n=26, mu0=0, tau0=0.001, a=0.1, b=0.1)
+```
+
+**1.9. Create an `R` object for 3 sets of initial values; e.g.,**
+
+```{r}
+my.inits <- list(list(b0=0.1,b1=0.2,tau=0.1),
+           list(b0=-1,b1=3,tau=0.3),
+           list(b0=1,b1=0,tau=.8))
+```
+
+**1.10. Execute `jags.model` using the above objects. Note `n.chains`
+should be set equal to 3. How many unobserved stochastic nodes were
+there? How many observed?**
+
+```{r}
+model.j <- jags.model(textConnection(model_string), data=data, n.chains=3, inits=my.inits)
+```
+
+**1.11. Use `update` to carry out an initial MCMC run (burn-in) with
+1,000 iterations.**
+
+```{r}
+update(model.j, n.iter=1000)
+```
+
+**1.12. Now make a longer MCMC run using the `coda.samples` function
+with 10,000 iterations and have the results for** $\beta_0$, $\beta_1$,
+and $\sigma$ returned.
+
+```{r}
+res <- coda.samples(model.j, variable.names=c("b0", "b1", "sigma"), n.iter=10000)
+```
+
+**1.13. Plot the results from `coda.samples`. These are the trace plots.
+Do you think that the chains have converged for each of the 3
+parameters?**
+
+```{r}
+plot(res)
+```
+
+**1.14. You may have noticed from the trace plots that** $\beta_0$
+**and** $\beta_1$ **are mixing slowly. That's indicative of significant
+autocorrelation. Use the `acf` function to see how much correlation
+there is. For example, if the results from `coda.samples` are called
+`res`, for a parameter named beta0:, you can write
+`acf(res[[1]][,"beta0"],lag.max=100)`.**
+
+```{r}
+par(mfrow=c(1, 2))
+acf(res[[1]][, "b0"], lag.max=100)
+acf(res[[1]][, "b1"], lag.max=100)
+# acf(res[[1]][, "sigma"], lag.max=100)
+```
+
+**1.15. Also take a look at the effective sample sizes per parameter,
+e.g.,`effectiveSize(res[[1]][,"beta0"])`**
+
+```{r}
+effectiveSize(res[[1]][, "b0"])
+effectiveSize(res[[1]][, "b1"])
+effectiveSize(res[[1]][, "sigma"])
+```
+
+**1.16. In Lecture 3, the Gelman-Rubin (Brooks-Gelman-Rubin) statistic
+was discussed. This is a quantitative measure of apparent convergence
+that is based upon the degree of overlap of 2 or more chains after each
+iteration. The BGR statistic roughly approximates the ratio of the
+variability between chains to the variability within chains (like an F
+statistic in ANOVA). The general idea of the statistic is that the the
+ratio of those two measures should be around 1 at convergence, thus
+BGR=1 is "good". Use the `coda` package function called `gelman.plot` to
+plot the BGR statistic for each of the parameters against the MCMC
+iteration. And use `gelman.diag` for numerical summaries. What do you
+think about convergence now?**
+
+```{r}
+gelman.plot(res)
+gelman.diag(res)
+```
+
+**1.17. Centring the covariate, in this case Year, sometimes helps
+convergence. Modify your Model statement slightly by creating a new
+variable `meanY`, and then subtract that from the `Year[i]` values in
+the for loop. Repeat the above steps. How does convergence now look? Use
+the `summary` function on the JAGS output to examine the posterior means
+and standard deviations for** $\beta_0$**,** $\beta_1$**, and**
+$\sigma$**. How do the posterior mean for** $\beta_1$ **and** $\sigma$
+**compare to the maximum likelihood estimates obtained in 1.2?**
+
+```{r}
+model_string2 <- "
+model {
+  b0 ~ dnorm(mu0, tau0)
+  b1 ~ dnorm(mu0, tau0)
+  
+  tau ~ dgamma(a, b)
+  
+  sigma = 1 / sqrt(tau)
+  
+  meanY = mean(Year)
+  
+  for (i in 1: n) {
+    mu[i] = b0 + b1 * (Year[i] - meanY)
+    Jump[i] ~ dnorm(mu[i], tau)
+  }
+}
+"
+
+data <- list(Jump=Jump, Year=Year, n=26, mu0=0, tau0=0.001, a=0.1, b=0.1)
+model.j.cent <- jags.model(textConnection(model_string2), data=data, inits=my.inits, n.chains=3)
+update(model.j.cent, n.iter=1000)
+res.cent <- coda.samples(model.j.cent, variable.names=c("b0", "b1", "sigma"), n.iter=10000)
+```
+
+```{r}
+plot(res.cent)
+par(mfrow=c(1, 2))
+acf(res.cent[[1]][, "b0"], lag.max=100)
+acf(res.cent[[1]][, "b1"], lag.max=100)
+effectiveSize(res.cent[[1]][, "b0"])
+effectiveSize(res.cent[[1]][, "b1"])
+gelman.plot(res.cent)
+gelman.diag(res.cent)
+# better results, but still need more burn-in
+```
+
+**1.18. *Robustifying the regression.* As was noted in Lecture 3, the
+effects of extreme observations or "outliers" on regressing results can
+be diminished by using a** $t$ **distribution for the observations. For
+simplicity, assume a** $t$ **distribution with 3 df for the distribution
+of errors. Revise the JAGS model code accordingly (continuing to work
+with the centred covariate) and re-run. Recall from Lecture 3 that the
+necessary change to the code is to replace `dnorm` with `dt` and add an
+additional argument to `data` for the df (=3). How did the posterior
+mean of** $\beta_1$ **change? Compare it to the estimate in 1.2 when the
+extreme observation is removed.**
+
+-   
+
+    ```{r}
+    model_string3 <- "
+    model {
+      b0 ~ dnorm(mu0, tau0)
+      b1 ~ dnorm(mu0, tau0)
+      
+      tau ~ dgamma(a, b)
+      
+      sigma = 1 / sqrt(tau)
+      
+      meanY = mean(Year)
+      
+      for (i in 1: n) {
+        mu[i] = b0 + b1 * (Year[i] - meanY)
+        Jump[i] ~ dt(mu[i], tau, nu)
+      }
+    }
+    "
+
+    data <- list(Jump=Jump, Year=Year, n=26, mu0=0, tau0=0.001, a=0.1, b=0.1, nu=3)
+    model.j.rob <- jags.model(textConnection(model_string3), data=data, inits=my.inits, n.chains=3)
+    update(model.j.rob, n.iter=1000)
+    res.rob <- coda.samples(model.j.rob, variable.names=c("b0", "b1", "sigma"), n.iter=10000)
+    ```
+
+    ```{r}
+    summary(res.rob)
+    plot(res.rob)
+    par(mfrow=c(1, 2))
+    acf(res.rob[[1]][, "b0"], lag.max=100)
+    acf(res.rob[[1]][, "b1"], lag.max=100)
+    effectiveSize(res.rob[[1]][, "b0"])
+    effectiveSize(res.rob[[1]][, "b1"])
+    gelman.plot(res.rob)
+    gelman.diag(res.rob)
+    ```
+
+**2. Nonlinear Regression. Newton's law of cooling, from Bates and Watts
+(2008)**
+
+**The following data are measurements over a 41 minute period of the
+temperature of a bore after that bore had been rubbed inside "a
+stationary cylinder and pressed against the bottom by means of a screw".
+The bore was turned by a team of horses (this is an experiment with
+friction from 1798 by a Count Rumford).**
+
+```{r}
+#minutes
+elapsed.time <- c(4,5,7,12,14,16,20,24,28,31,34,37.5,41)
+#Fahrenheit
+temperature <- c(126,125,123,120,119,118,116,115,114,113,112,111,110) 
+```
+
+**An underlying theoretical model based on Newton's law of cooling
+suggests that temperature should decline over time according to the
+following model.** $$\begin{aligned}
+\mbox{temperature} & = & 60 +70e^{-\theta \;\mbox{elapsed.time}}
+\end{aligned}$$ **You are to evaluate this model, i.e., make estimates
+of** $\theta$ **using classical and Bayesian techniques.**
+
+**2.1. Plot temperature against time (use the `scatter.smooth` function
+to draw a nonparametric regression line through the points).**
+
+```{r}
+plot(elapsed.time, temperature, main="Temperature of the bore against elapsed time", pch=19, col="grey40")
+```
+
+**2.2. Fit the model in (i) using a classical approach that assumes that
+observations have model errors are iid Normal(0,**$\sigma^2$).
+$$\begin{aligned}
+ \mbox{temperature} & \sim & \mbox{Normal} \left ( 60 +70e^{-\theta \; \mbox{elapsed.time}}, \sigma^2 \right )
+\end{aligned}$$ Use the `nls` function in R. The format of `nls` in this
+case:
+`nl.1 <- nls(formula= temperature ~ 60 + 70*exp(-theta*elapsed.time), start=list(theta=initial.theta))`
+**where `initial.theta` is an initial guess as to what** $\theta$ is.
+
+**One way to get an estimate of** $\theta$ **is to "linearize" Newton's
+law of cooling as follows:** $$\begin{aligned}
+-\ln \left ( \frac{(\mbox{temperature}-60)}{70} \right )  & = &  \theta*\mbox{elapsed.time}
+\end{aligned}$$ **and then fit the resulting linear model with the `lm`
+function.**
+
+**Use the estimated coefficient in `out` as the value of
+`initial.theta`. After fitting the model, plot the fit and the
+observations.**
+
+```{r}
+y <- - log((temperature - 60) / 70)
+out <- lm(y ~ -1 + elapsed.time)
+initial.theta <- out$coefficients["elapsed.time"]
+nl.1 <- nls(formula=temperature ~ 60 + 70 * exp(- theta * elapsed.time), start=list(theta=initial.theta))
+summary(nl.1)
+```
+
+```{r}
+plot(temperature ~ elapsed.time,xlab="Time",ylab="Temperature", main="Friction Experiment Data")
+lines(elapsed.time, fitted(nl.1), col="red")
+# not good fit
+```
+
+**How does the fit look?**
+
+**2.3. Instead of using 60 and 70 in Newton's law of cooling as known
+values, refit the model estimating the coefficients (these coefficients
+need to be assigned some parameter names such as beta0 and beta1, and
+then included in the start parameter of the nls function, see ?nls for
+more info).**
+
+**Compare the estimated coefficients to the assumed values and plot the
+fitted line over the top of the previous plot. Has the fit improved?**
+
+```{r}
+nl.2 <- nls(temperature ~ beta0 + beta1 * exp(- theta * elapsed.time), start=list(beta0=50, beta1=50, theta=initial.theta))
+summary(nl.2)
+plot(temperature ~ elapsed.time,xlab="Time",ylab="Temperature", main="Friction Experiment Data")
+lines(elapsed.time, fitted(nl.2), col="red")
+# better
+```
+
+**2.4. Use JAGS to fit two Bayesian nonlinear regression models: one
+based on Newton's law of cooling, as in (ii), and another where all
+three coefficients are estimated, as in (iii). Assume that temperatures
+are normally distributed in the likelihood model.**
+
+**In both cases use exponential distributions for the priors for**
+$\theta$ **and then for** $\beta_0$ **and** $\beta_1$ **(to ensure that
+the posterior distributions are positive valued). To pick the
+exponential distribution hyperparameter, say** $\alpha$**, note that
+if** $X \sim$**Exp**$(\alpha)$**,** $\mathbb{E}[X]$ **=** $1/\alpha$**.
+Pick a large value for the hyperparameter for** $\theta$ **such that the
+expected value of** $\theta$ **is less than 1. For the 2nd model (as in
+(iii)), select hyperparameter values for** $\beta_0$ **and** $\beta_1$
+**such that the expected values are 60 and 70, respectively. Note: in
+JAGS, the exponential density is written `theta ~ dexp(a)` given
+hyperparameter** $a$**.**
+
+**Compare the posterior means for** $\theta$ **in both models with the
+frequentist estimates.\
+Likewise compare the posterior means for** $\beta_0$ **and** $\beta_1$
+**for the second model.**
+
+```{r}
+model_string1 <- "
+model {
+  tau ~ dgamma(a, b)
+  sigma = 1 / sqrt(tau)
+  
+  theta ~ dexp(alpha)
+  
+  for (i in 1: n) {
+    mu[i] = 60 + 70 * exp(- theta * elapsed.time[i])
+    temp[i] ~ dnorm(mu[i], tau)
+  }
+}
+"
+
+data <- list(elapsed.time=elapsed.time, temp=temperature, n=13, a=0.1, b=0.1, alpha=10)
+model.j1 <- jags.model(textConnection(model_string1), data=data, n.chains=3)  # inits not specified
+update(model.j1, n.iter=1000)
+res.j1 <- coda.samples(model.j1, n.iter=10000, variable.names=c("theta"))
+plot(res.j1)
+summary(res.j1)
+```
+
+```{r}
+model_string2 <- "
+model {
+  tau ~ dgamma(a, b)
+  sigma = 1 / sqrt(tau)
+  
+  theta ~ dexp(alpha)
+  
+  b0 ~ dexp(alpha0)
+  b1 ~ dexp(alpha1)
+  
+  for (i in 1: n) {
+    mu[i] = b0 + b1 * exp(- theta * elapsed.time[i])
+    temp[i] ~ dnorm(mu[i], tau)
+  }
+}
+"
+
+data <- list(elapsed.time=elapsed.time, temp=temperature, n=13, a=0.1, b=0.1, alpha=10, alpha0=1 / 60, alpha1=1 / 70)
+model.j2 <- jags.model(textConnection(model_string2), data=data, n.chains=3)
+update(model.j2, n.iter=10000)
+res.j2 <- coda.samples(model.j2, n.iter=10000, variable.names=c("theta", "b0", "b1"))
+par(mfrow=c(3, 2))
+plot(res.j2)
+summary(res.j2)
+```
+
+**3. Multiple Linear Regression\
+Factors Affecting Extinction Times of 62 Land Bird Species, adapted from
+Albert, 2009\
+The data are taken from Ramsey and Schafer (1997), who took them from
+Pimm et al. 1988, and are available in the `LearnBayes` package as the
+object `birdextinct`. Land birds on 16 small islands had been observed
+annually during breeding surveys over a period of several decades. Some
+62 species went extinct at some point and the objective is to examine
+the relationship between the years till extinction and three different
+covariates: the initial average number of nesting pairs observed
+(`nesting`), the physical size of the birds (an indicator variable
+`size` with 1=small and 0=large), and migratory status (an indicator
+variable `status` with 1=resident, 0=migratory).**
+
+**To begin, do the following in `R`.**
+
+```{r}
+library(LearnBayes)
+
+data(birdextinct)
+n <- nrow(birdextinct)
+extinct.time <- birdextinct$time
+avg.no.nests <- birdextinct$nesting
+size.ind <- birdextinct$size   # 0 = large, 1= small
+mig.ind <- birdextinct$status # 0 = mig, 1=resident
+
+size <- rep("Small", length(size.ind))
+size[which(size.ind == 0)] <- "Large"
+mig <- rep("Resident", length(mig.ind))
+mig[which(mig.ind == 0)] <- "Mig"
+```
+
+**3.1. We start by doing some exploratory data analysis and data
+transformation. Look at the histogram of `extinct.time`. It is strongly
+right skewed (there are few species with times till extinction that are
+long relative to most species). Therefore make the response variable the
+natural log of exinct.time:**
+
+```{r}
+log.extinct <- log(extinct.time)
+```
+
+**3.2. Make 4 plots of** $y$**=`log.extinct`: histogram of** $y$ **,
+scatterplot of** $y$ **against `avg.nests`, side-by-side boxplots of**
+$y$ **for small and large birds, and side-by-side boxplots of resident
+and migratory birds. Hint: To make side-by-side boxplots use the `split`
+function; e.g.,`boxplot(split(log.extinct,size),main='vs Size')`**
+
+```{r}
+par(mfrow=c(2, 2))
+par(mar=c(2, 2, 2, 2))
+hist(log.extinct, main="Histogram")
+scatter.smooth(avg.no.nests, log.extinct, main="Scatterplot")
+boxplot(split(log.extinct, size), main="Boxplot - Size")
+boxplot(split(log.extinct, mig), main="Boxplot - Mig")
+```
+
+**3.3. How would you describe the relationships between the 3 covariates
+and time till extinction?**
+
+**3.4. Fit a classical multiple linear regression of the `log.extinct`
+on the three covariates**
+
+```{r}
+extinct.mlr <- lm(log.extinct ~ avg.no.nests + size + mig)
+```
+
+**3.5. Examine the estimated coefficients. How do they compare to your
+conclusions from the EDA (Exploratory Data Analysis)?**
+
+```{r}
+summary(extinct.mlr)
+```
+
+**In questions 3.6-3.11, we use JAGS to fit a Bayesian multiple
+regression analysis.**
+
+**3.6. Implement the Bayesian version of the above multivariate
+regression model in JAGS. Centre the *avg.no.nests* covariate. Use 3
+sets of initial values for the parameters.**
+
+```{r}
+avg.no.nests.cent <- avg.no.nests - mean(avg.no.nests)
+model_string1 <- "
+model {
+  tau ~ dgamma(a, b)
+  sigma = 1 / sqrt(tau)
+  
+  for (i in 1: 4) {
+    beta[i] ~ dnorm(mu0, tau0)
+  }
+  
+  for (i in 1: n) {
+    mu[i] = beta[1] + beta[2] * avg.no.nests[i] + beta[3] * size[i] + beta[4] * mig[i]
+    log.extinct[i] ~ dnorm(mu[i], tau)
+  }
+}
+"
+data <- list(log.extinct=log.extinct, avg.no.nests=avg.no.nests.cent, size=size.ind, mig=mig.ind, n=n, a=0.01, b=0.01, mu0=0, tau0=1e-5)
+my.inits <- list(list(tau=0.1, beta=c(0.1, 1, 10, 3)),
+                 list(tau=0.1, beta=c(0.2, -5, 5, 1)),
+                 list(tau=0.2, beta=c(0.2, 10, 20, -2)))
+model.j1 <- jags.model(textConnection(model_string1), data=data, n.chains=3, inits=my.inits)
+update(model.j1, n.iter=1000)
+res.j1 <- coda.samples(model.j1, n.iter=10000, variable.names=c("sigma", "beta"))
+```
+
+**3.7. Plot the JAGS output to see the trace plots. (Type
+`par(ask=TRUE)` in order to see all 5 plots. Then type `par(ask=FALSE)`
+to turn the option off.)**
+
+```{r}
+par(mfrow=c(5, 2))
+par(mar=c(2, 2, 2, 2))
+plot(res.j1)
+```
+
+**3.8. Use the Gelman-Rubin diagnostics to check for convergence.**
+
+```{r}
+gelman.diag(res.j1)
+gelman.plot(res.j1)
+```
+
+**3.9. Plot the autocorrelation functions.**
+
+```{r}
+par(mfrow=c(3, 2))
+par(mar=c(1, 1, 1, 1))
+acf(res.j1[[1]][, "beta[1]"], lag.max=30)
+acf(res.j1[[1]][, "beta[2]"], lag.max=30)
+acf(res.j1[[1]][, "beta[3]"], lag.max=30)
+acf(res.j1[[1]][, "beta[4]"], lag.max=30)
+acf(res.j1[[1]][, "sigma"], lag.max=30)
+```
+
+**3.10. Examine the effective sample sizes.**
+
+```{r}
+effectiveSize(res.j1)
+```
+
+**3.11. Calculate studentised residuals, draw a QQ-plot to check
+normality, plot posterior mean fitted values, and carry out posterior
+predictive checks for the minimum and maximum log.extinct times. (See
+the mtcars example in the R code for Lecture 3 on the Learn site for
+example code to do this.)**
+
+```{r}
+# number of chains doesn't matter
+res.j1.mat <- as.matrix(res.j1)  # (30000, 5)
+nsamp <- nrow(res.j1.mat)
+sigma <- res.j1.mat[, "sigma"]
+x <- cbind(rep(1, n), avg.no.nests.cent, size.ind, mig.ind)
+H <- x %*% solve(t(x) %*% x) %*% t(x)
+
+fittedvalues <- x %*% t(res.j1.mat[, -5])  # (62, 30000)
+studentizedred <- matrix(0, nrow=n, ncol=nsamp)
+for (i in 1: n) 
+  for (j in 1: nsamp)
+    studentizedred[i, j] <- (log.extinct[i] - fittedvalues[i, j]) / (sigma[j] * sqrt(1 - diag(H)[i]))  # (62, 30000)
+studentizedredm <- apply(studentizedred, 1, mean)  # (62)
+```
+
+```{r}
+qqnorm(studentisedresidm)
+qqline(studentisedresidm)
+```
+
+```{r}
+fittedvaluesm <- apply(fittedvalues, 1, mean)
+plot(fittedvaluesm, studentisedresidm)
+```
+
+```{r}
+yrep <- matrix(0, nrow=n, ncol=nsamp)
+for (i in 1: nsamp) {
+  yrep[, i] <- rnorm(n, mean=fittedvalues[, i], sd=sigma[i])
+}
+yrepmin <- apply(yrep, 2, min)
+yrepmax <- apply(yrep, 2, max)
+# note the dimension here! should be the max & min of the n data, not nsamp samples!
+par(mfrow=c(2, 1))
+hist(yrepmin, col="grey40")
+abline(v=min(log.extinct), col="red")
+hist(yrepmax, col="grey40")
+abline(v=max(log.extinct), col="red")
+```
+
+**4. State space modeling for gray whale abundance**
+
+**In this exercise, we continue work with our state space model from
+Lecture 3.**
+
+**As a recap, we have some observations of gray whale abundance (i.e.
+population size) during some of the years in the period 1951-1997. It
+turns out that it is easier to fit a model on the logarithm of the
+population rather than the population directly. We are going to use the
+following models from the true log-population** $x_t$ **(**$t$ **denotes
+the year),**
+
+$$x_t = b x_{t-1}+u+w_t; \quad w_t\sim N(0,\sigma^2).$$
+
+**The observations are not assumed to be exact, but we allow them to
+have an error, this is modelled as**
+
+$$y_t =x_{t}+v_t, \quad v_t\sim N(0,\eta^2).$$
+
+**This is a simple State-Space Model (SSM), also called Hidden Markov
+Model.** $x_t$ **are the hidden states, and** $y_t$ **are the
+observations.**
+
+The following lines load the dataset and create the observation vector
+$y$.
+
+```{r}
+library("MARSS")
+#This loads to MARSS library
+#If not available, please use install.packages("MARSS") first before loading it
+
+# We load the graywhales dataset, and print out the values
+data(graywhales)
+print(graywhales)
+
+n = 1997 - 1951 + 1
+#We will have one y[i] for each year from 1951 until 1997
+#So i=1 corresponds to 1951, i=2 corresponds to 1952, etc.
+
+y=rep(NA, n)
+for(i in 1: nrow(graywhales)) {
+    y[graywhales[i, 1] - 1950] = log(graywhales[i, 2])
+}
+```
+
+**4.1. Implement the model in JAGS using the following prior
+distributions for the model parameters:**
+
+-   **Gaussian prior** $N(\log(2500),1)$ for the initial state $x_0$,
+
+-   **Uniform prior on the interval (0,1) for parameter** $b$,
+
+-   **Exponential prior with parameter 1 for** $u$,
+
+-   **Inverse Gamma prior with parameters (0.1,0.1) for** $\sigma^2$ and
+    $\eta^2$.
+
+**Hint: you can use the code provided with Lecture 3 for this.**
+
+**Compile and run the JAGS simulations. Compute the effective samples
+sizes for these 5 parameters. Choose the number of steps in the burn-in
+period and the number of MCMC iterations in a way to ensure that the
+effective sample sizes for the 4 parameters** $x_0$,$b$**,** $u$**,**
+$\sigma^2$ **and** $\eta^2$ **are all above 1000. Once this is ensured,
+compute summary statistics and plot the posterior densities of these
+parameters.**
+
+```{r}
+model_string <- "
+model {
+  x[1] ~ dnorm(mu0, tau0)
+  y[1] ~ dnorm(x[1], tauy)
+  yrep[1] ~ dnorm(x[1], tauy)
+  b ~ dunif(ab, bb)
+  u ~ dexp(alpha)
+  
+  taux ~ dgamma(ax, bx)
+  sigma2 = 1 / taux
+  tauy ~ dgamma(ay, by)
+  eta2 = 1 / tauy
+  
+  for (i in 2: n) {
+    x[i] ~ dnorm(b * x[i - 1] + u, taux)
+    y[i] ~ dnorm(x[i], tauy)
+    yrep[i] ~ dnorm(x[i], tauy)
+  }
+}
+"
+library(imputeTS)
+x.init=na_interpolation(y)
+
+data <- list(y=y, n=n, ab=0, bb=1, mu0=log(2500), tau0=1, alpha=1, ax=0.1, bx=0.1, ay=0.1, by=0.1)
+
+# init values can affect effective sample size!
+my.inits <- list(list(b=0.8, u=0.5, taux=1, tauy=1, x=x.init+rnorm(n, sd=0.1)),
+                   list(b=0.9, u=0.3, taux=2, tauy=2, x=x.init+rnorm(n, sd=0.1)),
+                   list(b=0.7, u=1, taux=0.7, tauy=0.7, x=x.init+rnorm(n,sd=0.1)),
+                   list(b=0.6, u=1.5, taux=0.5, tauy=0.5, x=x.init+rnorm(n,sd=0.1)),
+                    list(b=0.5, u=2, taux=0.3, tauy=0.3, x=x.init+rnorm(n,sd=0.1)))
+
+model.j <- jags.model(textConnection(model_string), data=data, n.chains=5, inits=my.inits)
+update(model.j, n.iter=30000)
+res.j <- coda.samples(model.j, n.iter=170000, variable.names=c("x[1]", "b", "u", "sigma2", "eta2"))
+effectiveSize(res.j)
+summary(res.j)
+plot(res.j)
+```
+
+**4.2. Now we are going to perform prior sensitivity checks. Try a
+different prior distribution for the 5 variables. For** $x_0$**, please
+do not change the mean significantly from log(2500), but you can try a
+different variance. When formulating priors, you are encouraged to use
+your understanding of the model parameters and biological facts (see
+e.g. <https://en.wikipedia.org/wiki/Gray_whale>). Run the simulations
+again, and compare the summary statistics and posterior density plots of
+these 5 parameters.**
+
+```{r}
+data.m <- list(y=y, n=n, ab=0.5, bb=1, mu0=log(2500), tau0=2, alpha=6, ax=1, bx=1 / 20, ay=1, by=1 / 20)
+model.j.m <- jags.model(textConnection(model_string), data=data.m, n.chains=5, inits=my.inits)
+update(model.j.m, n.iter=30000)
+res.j.m <- coda.samples(model.j.m, n.iter=170000, variable.names=c("x[1]", "b", "u", "sigma2", "eta2"))
+effectiveSize(res.j.m)
+summary(res.j.m)
+plot(res.j.m)
+```
+
+**4.3.** **Update the model to compute the posterior distribution of the
+log population sizes (**$x_t$**) every year between 1951-2050. Plot the
+evolution of the posterior mean of the log population sizes from
+1951-2050 on a single plot, along with two other curves that correspond
+to the [2.5%, 97.5%] credible interval of the log population size
+(**$x_t$**) according to the posterior distribution at each year.
+Finally, estimate the posterior probability that the population of gray
+whales becomes smaller than 100 at any year from 1951 until the end of
+2050 (i.e.,** $p(\min_{t\in \{0,1\ldots,99\}} x_t<=\log(100)|y)$**).**
+
+```{r}
+n3 <- 100
+y3 <- rep(NA, n3)
+y3[1: n] <- y
+
+require(imputeTS)
+x.init3 <- na_interpolation(y3)
+
+data.m <- list(y=y3, n=n3, ab=0.5, bb=1, mu0=log(2500), tau0=2, alpha=6, ax=1, bx=1 / 20, ay=1, by=1 / 20)
+
+my.inits <- list(list(b=0.8, u=0.5, taux=1, tauy=1, x=x.init3 + rnorm(n3, sd=0.1)),
+                     list(b=0.9, u=0.3, taux=2, tauy=2, x=x.init3 + rnorm(n3, sd=0.1)),
+                     list(b=0.7, u=1, taux=0.7, tauy=0.7, x=x.init3 + rnorm(n3, sd=0.1)),
+                     list(b=0.6, u=1.5, taux=0.5, tauy=0.5, x=x.init3 + rnorm(n3, sd=0.1)),
+                     list(b=0.5, u=2, taux=0.3, tauy=0.3, x=x.init3 + rnorm(n3, sd=0.1)))
+
+model3 <- jags.model(textConnection(model_string), data=data.m, n.chains=5, inits=my.inits)
+
+update(model3, 30000)
+
+# Running the model
+res.model3 <- coda.samples(model3,variable.names=
+           c("b", "u", "sigma2", "eta2", "x"), n.iter=170000)
+```
+
+```{r}
+res.model3.mat <- as.matrix(res.model3)
+nsamp <- nrow(res.model3.mat)
+x.samples <- res.model3.mat[, 5: 104]
+xm <- apply(x.samples, 2, mean)  # posterior mean for log value each year
+x.quant <- apply(x.samples, 2, function(x) quantile(x, prob=c(0.025, 0.975)))
+plot(1951: 2050, xm)
+lines(1951: 2050, x.quant[1, ])
+lines(1951: 2050, x.quant[2, ])
+
+sum(apply(x.samples, 1, min) <= log(100))
+```
+
+**4.4. We are going to perform posterior predictive checks to evaluate
+the fit of this model on the data. First, create replicate observations
+from the posterior predictive using JAGS. The number of replicate
+observations should be at least 1000. Compute the minimum, maximum,
+median, kurtosis and skewness for the replicated observations. Plot the
+histograms for these quantities together with a line that shows the
+value of the function considered on the actual dataset (see the R code
+for Lecture 3 for an example). Perform these checks both for the
+original prior from Question 5.1, and the prior you have proposed in
+Question 5.2. Discuss the results.**
+
+```{r}
+y.not.na.ind <- which(!is.na(y))
+y.not.na <- y[!is.na(y)]
+
+res.yrep <- coda.samples(model3, n.iter=100000, variable.names=c("yrep"))  # (nsamp, n)
+
+res.yrep <- as.matrix(res.yrep)[, y.not.na.ind]
+
+yrep.min <- apply(res.yrep, 1, min)
+yrep.max <- apply(res.yrep, 1, max)
+yrep.med <- apply(res.yrep, 1, median)
+require(fBasics)
+yrep.kurt <- apply(res.yrep, 1, kurtosis)
+yrep.skew <- apply(res.yrep, 1, skewness)
+
+par(mfrow=c(3,2))
+hist(yrep.min,col="gray40",main="Predictive distribution for min")
+abline(v=min(y.not.na),col="red",lwd=2)
+hist(yrep.max,col="gray40",main="Predictive distribution for max")
+abline(v=max(y.not.na),col="red",lwd=2)
+hist(yrep.med,col="gray40",main="Predictive distribution for median")
+abline(v=median(y.not.na),col="red",lwd=2)
+hist(yrep.kurt,col="gray40",main="Predictive distribution for kurtosis")
+abline(v=kurtosis(y.not.na),col="red",lwd=2)
+hist(yrep.skew,col="gray40",main="Predictive distribution for skewness")
+abline(v=skewness(y.not.na),col="red",lwd=2)
+```

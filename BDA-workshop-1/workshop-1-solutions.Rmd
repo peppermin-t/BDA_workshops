@@ -1,0 +1,1110 @@
+---
+editor_options:
+  markdown:
+    wrap: 72
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+**University of Edinburgh**
+
+**School of Mathematics**
+
+**Bayesian Data Analysis, 2023/2024, Semester 2**
+
+**Workshop 1: Introduction to INLA**
+
+```{r}
+library(INLA)
+
+#If it loaded correctly, you should see this in the output:
+#Loading required package: Matrix
+#Loading required package: sp
+#This is INLA_23.09.09 built 2023-10-16 17:29:11 UTC.
+# - See www.r-inla.org/contact-us for how to get help.
+
+#Installation instructions for various operating systems are explained on  https://www.r-inla.org/download-install
+#The following code does the full installation. You can try it if INLA has not been installed.
+#First installing some of the dependencies (especially on Windows) 
+#Note that the installation may stop several times, and a pop-up window could appear, where you need to select installation from source or binary (usually binary is ok). 
+
+#install.packages("BiocManager")
+#BiocManager::install("Rgraphviz")
+#if (!requireNamespace("BiocManager", quietly = TRUE))
+#    install.packages("BiocManager")
+#BiocManager::install("graph")
+#
+#Installing INLA
+#install.packages("INLA",repos=c(getOption("repos"),INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+
+#Loading INLA
+#library(INLA)
+```
+
+#### **1. Simple linear regression with robustification**
+
+#### **Winning Olympic Men's Long Jump Distances (adapted from Witmer, 2017)**
+
+**The data are the winning men's long jump distances (m) from 1900
+through 2008. You will fit a linear regression of the distances as a
+function of Olympic year:** $$
+Jump =  \beta_0 + \beta_1 \mbox{Year} + \epsilon$$ **three different
+ways: standard frequentist approach, a Bayesian approach assuming normal
+errors (using INLA), and a Bayesian approach assuming a** $t$
+**distribution for errors (using INLA).**
+
+**Run the following commands in `R` to begin (this will install and load
+the package Stat2Data and load the Long Jump dataset).**
+
+```{r}
+library(Stat2Data)
+#If not available, run this first:
+#install.packages("Stat2Data")
+
+data("LongJumpOlympics")   #Makes the dataset available in this R session
+Jump <- LongJumpOlympics$Gold
+Year <- LongJumpOlympics$Year
+#You can get more info about the dataset by the command
+#help(topic="LongJumpOlympics",package="Stat2Data")
+```
+
+**1.1. Fit a simple linear regression on Jump against Year using the lm
+function, and make a plot of the data with the fitted line overlaid
+using the abline function.**
+
+```{r}
+#1.1. Fit simple linear regression model.
+m1 <- lm(Jump ~ Year)
+summary(m1)
+#Plot data with fit overlaid.
+par(mfrow=c(1,1))
+plot(Jump ~ Year,xlab="Year",ylab="Jump (m)",
+     type="n",main="Olympic Gold LongJump Distances (m)",cex=0.6)
+text(x=Year,y=Jump,labels=Year)
+abline(m1,col="blue")
+```
+
+**1.2. Center the data, and carry out a Bayesian linear regression
+analysis using `INLA`. As in the frequentist case assume**
+$\epsilon$$\sim$ **Normal(0,** $\sigma^2$**). Use the following priors
+for the three parameters:** $$
+\beta_0, \beta_1  \sim  \mbox{Normal} \left ( \mu_0=0, \tau_0=0.01 \right ) \\
+\tau  \sim \mbox{Gamma} \left ( a=0.1, b=0.1 \right )
+$$
+
+```{r}
+meanY <- mean(Year)
+Year.ctr=Year-meanY
+
+prec.prior <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)))
+
+prior.beta <- list(mean.intercept = 0, prec.intercept = 0.01,
+                    mean = 0, prec = 0.01)
+
+data=data.frame(Jump,Year.ctr)
+
+m1I <- inla(Jump ~Year.ctr,data=data,control.family=list(hyper=prec.prior),control.fixed=prior.beta)
+```
+
+**1.3. Compute the summary statistics and plot the densities for the
+model parameters** $\beta_0$**,** $\beta_1$ **and** $\sigma$**.**
+
+The summary statistics and densities are shown below.
+
+```{r}
+summary(m1I)
+m1I$marginals.fixed$`(Intercept)`
+```
+
+```{r}
+plot(m1I$marginals.fixed$`(Intercept)`, type ="l",xlab="x",ylab="Density",
+main='Posterior density of beta0')
+```
+
+```{r}
+plot(m1I$marginals.fixed$Year.ctr, type ="l",xlab="x",ylab="Density",
+main='Posterior density of beta1')
+```
+
+```{r}
+#By writing
+#names(m1I$marginals.hyperpar)
+#we can find out that the precision parameter can be accessed as 
+#m1I$marginals.hyperpar[[1]] 
+#m1I$marginals.hyperpar$`Precision for the Gaussian observations` would work too
+
+marg.sigma <- inla.tmarginal(function(tau) tau^(-1/2),
+  m1I$marginals.hyperpar[[1]])
+#Summary statistics of sigma
+cat("Summary statistics of sigma\n")
+inla.zmarginal(marg.sigma)
+```
+
+```{r}
+#Plot of marginal of sigma
+plot(marg.sigma, type ="l",xlab="x",ylab="Density",
+main='Posterior density of sigma')
+```
+
+**1.4. Using a Bayesian Linear Model fitted with INLA with the same
+priors as in 1.2, plot the posterior predictive density of the long jump
+distance in 2021 (hopefully the Summer Olympics will happen this year).
+Compute the expectation and state 95% Bayesian credible intervals for
+the long jump distance in 2021.**
+
+**Hint: you can ensure that INLA computes the posterior predictive
+distribution at time 2021 by including 2021 in your Year variable, while
+setting the corresponding component in the Jump variable as NA.**
+
+First, we include a new row in the dataframe for year 2021, with the
+response variable set to NA. After this, we fit the model in INLA.
+
+```{r}
+meanY <- mean(Year)
+Year.ctr=Year-meanY
+Year.ctr.2021=c(Year.ctr,2021-meanY)
+Jump.2021=c(Jump,NA)
+#We are using the same priors as in (ii)
+data.2021=data.frame(Jump=Jump.2021,Year.ctr=Year.ctr.2021)
+data.2021[21:27, ]
+m2I <- inla(Jump ~ Year.ctr,data=data.2021,control.family=list(hyper=prec.prior),
+            control.fixed=prior.beta,control.predictor = list(compute = TRUE), control.compute = list(config = TRUE))
+
+summary(m2I)
+```
+
+Now we will plot the posterior predictive. For this, we need to obtain
+samples from the linear predictor using inla.posterior.sample, and add
+the Gaussian noise from the likelihood, as we have done during Lecture
+2.
+
+```{r}
+n=length(Year.ctr)
+
+nbsamp=10000;
+m2I.samp=inla.posterior.sample(n=nbsamp, result=m2I,selection= list(Predictor=27))
+
+#Obtain the samples from the linear predictors, which is equivalent to the mean of the observations as the link function is the identity here
+predictor.samples=unlist(lapply(m2I.samp, function(x)(x$latent[1])))
+
+#We obtain the samples from the parameter sigma using the samples from the precision 
+sigma.samples=1/sqrt(unlist(lapply(m2I.samp, function(x)(x$hyperpar[1]))))
+
+#We obtain the posterior predictive samples by adding the Gaussian noise from the likelihood to the mean (mu_i=eta_i)
+
+
+post.pred.samples=predictor.samples+rnorm(nbsamp, mean=0,sd=sigma.samples)
+
+plot(density(post.pred.samples),type ="l",xlab="x",ylab="Density",
+main='Posterior predictive density of winning jump length in 2021')
+```
+
+**1.5. Using INLA, compute the posterior predictive probability that the
+winning jump in 1968 will be exceeded during the Olympics by 2028,
+assuming that Olympics will be held in 2021, 2024 and 2028. Hint: you
+can compute this by sampling from the posterior predictive.**
+
+The first step is to include 3 new rows for years (2021, 2024 and 2028)
+in the dataframe, with Jump variable set at NA. Once this is done, we
+can fit the model with INLA.
+
+```{r}
+meanY <- mean(Year)
+Year.ctr=Year-meanY
+Year.ctr.2028=c(Year.ctr,2021-meanY,2024-meanY,2028-meanY)
+Jump.2028=c(Jump,NA,NA,NA)
+#We are using the same priors as in (ii)
+
+m3I <- inla(Jump.2028 ~ Year.ctr.2028,data=data.frame(Jump=Jump.2028,Year=Year.ctr.2028),
+            control.family=list(hyper=prec.prior),control.fixed=prior.beta,control.predictor = list(compute = TRUE),
+            control.compute = list(config = TRUE))
+summary(m3I)
+```
+
+```{r}
+#We obtain samples from the linear predictors, and only use the ones that correspond to the 3 additional years 2021, 2024 and 2028
+nbsamp=10000
+m3I.samp <- inla.posterior.sample(nbsamp, m3I,selection = list(Predictor=27:29))
+
+
+#Obtain the samples from the linear predictors, which is equivalent to the mean of the observations as the link function is the identity here
+predictor.samples=matrix(unlist(lapply(m3I.samp, function(x)(x$latent[1:3]))),nrow=3,ncol=nbsamp)
+
+#We obtain the samples from the parameter sigma using the samples from the precision 
+sigma.samples=1/sqrt(unlist(lapply(m3I.samp, function(x)(x$hyperpar[1]))))
+
+
+#We obtain the posterior predictive samples by adding the Gaussian noise from the likelihood to the mean (mu_i=eta_i)
+
+post.pred.samples=matrix(0,nrow=3,ncol=nbsamp)
+for(it in 1:3){
+post.pred.samples[it,]=predictor.samples[it,]+rnorm(nbsamp, mean=0,sd=sigma.samples)
+}
+
+#We compute tha max of each column by sapply, this will be the max among the 3 years for each sample
+max.post.pred.samples=sapply(data.frame(post.pred.samples),max)
+
+#We print out the result
+p.1968.exceeded=mean(max.post.pred.samples>Jump.2028[16])
+cat("Posterior probability of exceeding the record of 1968:",p.1968.exceeded)
+
+```
+
+**1.6. *Robustifying the regression.* As was noted in Lecture 2, the
+effects of extreme observations or "outliers" on regressing results can
+be diminished by using a** $t$ **distribution for the observations. For
+simplicity, first assume a** $t$ **distribution with 3 degrees of
+freedom for the distribution of errors. Revise the INLA model code from
+1.2-1.3 accordingly (continuing to work with the centred covariates) and
+re-run.**
+
+Firstly, we fit the robust regression model with 3 degrees of freedom in
+the $t$ distribution.
+
+```{r}
+meanY <- mean(Year)
+Year.ctr=Year-meanY
+#Setting the priors for Student's t distribution
+prior.t <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)), dof = list(initial=log(3-2), fixed=TRUE) ) 
+prior.beta <- list(mean.intercept = 8, prec.intercept = 1,
+                    mean = 0, prec = 10)
+
+m4I <- inla(Jump ~ Year.ctr,family="T",data=data.frame(Jump,Year.ctr),control.family=list(hyper=prior.t),control.fixed=prior.beta, control.inla=list(cmin=0))
+summary(m4I)
+```
+
+Now we plot the posterior marginals for the parameters $\beta_0$,
+$\beta_1$, and $\sigma$.
+
+```{r}
+plot(m4I$marginals.fixed$`(Intercept)`, type ="l",xlab="x",ylab="Density",
+main='Posterior density of beta0 for robust regression with dof=3')
+```
+
+```{r}
+plot(m4I$marginals.fixed$Year.ctr, type ="l",xlab="x",ylab="Density",
+main='Posterior density of beta1 for robust regression with dof=3')
+```
+
+```{r}
+names(m4I$marginals.hyperpar)
+```
+
+```{r}
+#we can find out the name of the precision parameter from the summary above, or by running
+marg.robust.sigma <- inla.tmarginal(function(tau) tau^(-1/2),
+  m4I$marginals.hyperpar$`precision for the student-t observations`)
+#Summary statistics of sigma
+cat("Summary statistics of sigma for robust regression with dof=3\n")
+inla.zmarginal(marg.robust.sigma)
+```
+
+```{r}
+#Plot of marginal of sigma
+plot(marg.robust.sigma, type ="l",xlab="x",ylab="Density",
+main='Posterior density of sigma for robust regression with dof=3')
+```
+
+**1.7. In the robust regression INLA example in the previous question
+1.6, set a pc.dof(15,0.5) prior on the degrees of freedom parameter**
+$\nu$ **instead of fixing it at 3 (see
+<https://github.com/grantbrown/inla/blob/master/r-inla.org/doc/prior/pc.dof.pdf>)
+. Plot the posterior distribution of** $\nu$**.**
+
+The implementation is similar to 1.6, but we need to set the prior.t
+parameter differently to allow for a Gamma prior instead of fixing
+$\nu$.
+
+```{r}
+meanY <- mean(Year)
+Year.ctr=Year-meanY
+#Setting the priors for Student's t distribution
+#The reason that we are writing "loggamma" instead of "gamma" is that
+#INLA has a logarithmic internal parametrisation for most of the hyperparameters,
+#including precision and degrees of freedom
+
+prior.t <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)), dof = list(prior = "pc.dof",param = c(15,0.5)) ) 
+prior.beta <- list(mean.intercept = 0, prec.intercept = 1,
+                    mean = 0, prec = 1)
+
+m5I <- inla(Jump ~ Year.ctr,family="T",data=data.frame(Jump,Year.ctr),control.family=list(hyper=prior.t),control.fixed=prior.beta, control.inla=list(cmin=0))
+summary(m5I)
+```
+
+```{r}
+#You can find out that this marginal is called `degrees of freedom for student-t`
+#by the summary above, or from 
+names(m5I$marginals.hyper)
+plot(m5I$marginals.hyper$`degrees of freedom for student-t`, type ="l",xlab="x",ylab="Density",xlim=c(2,15),ylim=c(0,0.1),
+main='Posterior density of dof parameter nu for robust regression')
+```
+
+As you can see, INLA always assumes that $\nu>2$.
+
+**1.8. Compare the linear regression model from part 1.2 with the robust
+linear regression models from parts 1.6 and 1.7 in terms of marginal
+likelihood, Negative Sum Log CPO values, and DIC critera. Which one
+seems to be the best fit on the data according to these criteria?**
+
+First, we refit the models by including control.compute=list(cpo=TRUE,
+dic=TRUE) to compute CPO and DIC.
+
+```{r}
+meanY <- mean(Year)
+Year.ctr=Year-meanY
+data=data.frame(Jump,Year.ctr)
+
+prec.prior <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)))
+prior.beta <- list(mean.intercept = 0, prec.intercept = 0.01,
+                    mean = 0, prec = 0.01)
+m1I <- inla(Jump ~Year.ctr,data=data,
+            control.family=list(hyper=prec.prior),control.fixed=prior.beta,control.compute=list(cpo=TRUE, dic=TRUE))
+
+prior.t <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)), dof = list(initial=log(3-2), fixed=TRUE) ) 
+prior.beta <- list(mean.intercept = 0, prec.intercept = 0.01,
+                    mean = 0, prec = 0.01)
+
+m4I <- inla(Jump ~ Year.ctr,family="T",data=data,control.family=list(hyper=prior.t),control.fixed=prior.beta,
+           control.compute=list(cpo=TRUE, dic=TRUE),control.inla=list(cmin=0))
+
+prior.t <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)), dof = list(prior = "pc.dof",param = c(15,0.5)))
+prior.beta <- list(mean.intercept = 0, prec.intercept = 0.01,
+                    mean = 0, prec = 0.01)
+
+m5I <- inla(Jump ~ Year.ctr,family="T",data=data.frame(Jump,Year.ctr),control.family=list(hyper=prior.t),control.fixed=prior.beta,
+          control.compute=list(cpo=TRUE, dic=TRUE),control.inla=list(cmin=0))
+
+```
+
+Now we are ready to print out the criteria.
+
+```{r}
+cat("Log marginal likelihood of model 1:",m1I$mlik[1],"\n")
+cat("Log marginal likelihood of model 2:",m4I$mlik[1],"\n")
+cat("Log marginal likelihood of model 3:",m5I$mlik[1],"\n")
+
+cat("DIC of model 1:",m1I$dic$dic,"\n")
+cat("DIC of model 2:",m4I$dic$dic,"\n")
+cat("DIC of model 3:",m5I$dic$dic,"\n")
+
+cat("NSLCPO of model 1:",-sum(log(m1I$cpo$cpo)),"\n")
+cat("NSLCPO of model 2:",-sum(log(m4I$cpo$cpo)),"\n")
+cat("NSLCPO of model 3:",-sum(log(m5I$cpo$cpo)),"\n")
+```
+
+According to all 3 criteria, the second model (robust regression with
+degrees of freedom parameter $\nu=3$) fits best on the data.
+
+#### 2. Predicting house prices
+
+![](images/taipei.jpg)
+
+**In this problem, we are going to model house prices per unit area in a
+dataset containing 414 recent transactions in Taipei.**
+
+**The available covariates are i) transaction date (this is stored as a
+real number between 2012 and 2014, i.e. 2013.5 corresponds to 1 July,
+2013) ii) house age iii) distance from nearest MRT (metro) station in
+meters iv) number of convenience stores within walking distance v)
+latitude vi) longitude The response variable is the house price of unit
+area.**
+
+**The goal is to use INLA to fit several different regression models to
+this dataset. First, we will load ILNA and the dataset (Real_estate.csv,
+available on Learn).**
+
+```{r}
+#We load the Taipei house price dataset
+house=read.csv("Real_estate.csv")
+head(house)
+```
+
+**2.1. Start by centering and scaling all of the covariates (but keep
+the response unchanged). Fit a standard linear regression model (lm)
+with response as the logarithm of house price per unit area, using all
+of the 6 covariates. Describe the quality of the fit, and state summary
+statistics and the residual standard error.**
+
+We have created centered covariates using the scale function, and also
+saved the log per unit area house price as the response variable y.
+
+```{r}
+house$transaction=scale(house$X1.transaction.date)
+house$age=scale(house$X2.house.age)
+house$distance=scale(house$X3.distance.to.the.nearest.MRT.station)
+house$stores=scale(house$X4.number.of.convenience.stores)
+house$latitude=scale(house$X5.latitude)
+house$longitude=scale(house$X6.longitude)
+house$y=log(house$Y.house.price.of.unit.area)
+```
+
+After this, we have fitted a simple linear model with all covariates,
+and printed out the summary.
+
+```{r}
+m=lm(y~transaction+age+distance+stores+latitude+longitude,data=house)
+summary(m)
+```
+
+The residual standard error of 0.2216 on a log-scale means that the
+model is only able to predict the prices up to 22-25% relative
+precision. This error is rather large, perhaps our model is too
+simplistic, and there could be some confounding factors that are not
+included in the data but have a significant effect on the house prices.
+
+**2.2. Fit the same linear regression model as in 2.1, but now using
+INLA. Set a Gamma (0.1,0.1) prior for the precision, and Gaussian priors
+with mean zero and variance** $100$ **for all of the regression
+coefficients (including the intercept). Print out the summary
+statistics. Compute the posterior mean of the variance parameter**
+$\sigma^2$**. Plot the posterior density for the variance parameter**
+$\sigma^2$**. Compute the negative sum log CPO (NSLCPO) values for this
+model (smaller values indicate better fit). Compute the standard
+deviation of the mean residuals (i.e. the differences between the
+posterior mean of the fitted values, and the true response variable).
+Discuss the results.**
+
+In this question, we fitted an inla model with Gaussian likelihood. The
+formula is the same as for the linear model,
+y\~transaction+age+distance+stores+latitude+longitude
+
+```{r}
+prec.prior <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)))
+
+prior.beta <- list(mean = 0, prec = 0.01,
+                    mean = 0, prec = 0.01)
+
+m.I=inla(y~transaction+age+distance+stores+latitude+longitude,data=house,
+         family="Gaussian",
+         control.predictor = list(compute = TRUE),
+         control.compute = list(cpo=TRUE,config = TRUE),
+         control.family=list(hyper=prec.prior),control.fixed=prior.beta)
+summary(m.I)
+```
+
+We have obtained the posterior distribution of the parameter $\sigma$ by
+applying the inla.tmarginal function on the marginal of the precision
+parameter. The summary statistics were obtained by inla.zmarginal, and
+the mean was 0.0498. We have also plotted the posterior density of
+$\sigma^2$:
+
+```{r}
+marg.sigma2 <- inla.tmarginal(function(tau) tau^(-1),
+  m.I$marginals.hyperpar[[1]])
+#Summary statistics of sigma2
+cat("Summary statistics of sigma2\n")
+inla.zmarginal(marg.sigma2)
+```
+
+```{r}
+#Plot of marginal of sigma
+plot(marg.sigma2, type ="l",xlab="x",ylab="Density",
+main='Posterior density of sigma2 for model 1')
+```
+
+```{r}
+m.I.nlscpo=-sum(log(m.I$cpo$cpo))
+cat("NLSCPO of model 1:",m.I.nlscpo,"\n")
+
+cat("Standard deviation of mean residuals for model 1:",sd(house$y-m.I$summary.fitted.values$mean),"\n")
+```
+
+The results that we got from the INLA model are rather similar to the
+results from the lm model, with 0.22 standard deviation for mean
+residuals.
+
+**2.3. Compute the studentized residuals for the Bayesian regression
+model from part b). Perform a simple Q-Q plot on the studentized
+residuals. Plot the studentized residuals versus their index, and also
+plot the studentized residuals against the posterior mean of the fitted
+value (see Lecture 2). Discuss the results.**
+
+We sample from the residuals using inla.posterior.sample, and computed
+the studentized residuals using the same way as in Lecture 3. These are
+then plotted against the index, and the fitted values.
+
+```{r}
+nbsamp=10000
+samp <- inla.posterior.sample(nbsamp, m.I)
+
+
+sigma=1/sqrt(inla.posterior.sample.eval(function(...) {theta},
+  samp))
+
+#In this model the link function is the identity, so fitted values are the same as the linear predictors 
+#(E(y_i|x,theta)=mu_i=eta_i)
+
+fittedvalues=inla.posterior.sample.eval(function(...) {Predictor},
+samp)
+
+n=nrow(house)
+x=cbind(rep(1,n),house$transaction,house$age,house$distance,house$stores,house$latitude,house$longitude)
+H=x%*%solve((t(x)%*%x))%*%t(x)
+
+#studentised residuals
+#n is the number of rows in the dataset, i.e. the number of observations
+#studentised residuals
+studentisedred=matrix(0,nrow=n,ncol=nbsamp)
+
+#create a matrix of size n * nbsamp, repeating y in each column
+y=house$y
+ymx=as.matrix(y)%*%matrix(1,nrow=1,ncol=nbsamp);
+
+studentisedred=ymx-fittedvalues;
+
+for(l in 1:nbsamp){
+  studentisedred[,l]=studentisedred[,l]/sigma[l];
+}
+
+for(i in 1:n){
+  studentisedred[i,]=studentisedred[i,]/sqrt(1-H[i,i]);
+}
+
+
+#posterior mean of studentised residuals
+studentisedredm=numeric(n)
+for(i in 1:n){
+  studentisedredm[i]=mean(studentisedred[i,])  
+}
+
+
+
+#Plot of posterior mean studentised residual versus observation number.
+par(mfrow=c(1,1))
+plot(seq_along(studentisedredm),studentisedredm,xlab="Index",ylab="Bayesian studentised residual",ylim=c(-3,3))
+
+```
+
+```{r}
+#Compute posterior mean fitted values
+fittedvaluesm=numeric(n)
+for(i in 1:n){
+fittedvaluesm[i]=mean(fittedvalues[i,])
+}
+
+plot(fittedvaluesm,studentisedredm,xlab="Fitted value (posterior mean)",ylab="Bayesian Studentised residual (posterior mean)")
+```
+
+We can see no significant structure here, i.e. the posterior means of
+the residuals does not have a clear dependence on the index or the
+fitted value. We also do a Q-Q plot.
+
+```{r}
+#QQ-plot
+qqnorm(studentisedredm,xlim=c(-3,3),ylim=c(-3,3),lwd=2)
+qqline(studentisedredm,col=2,lwd=2)
+```
+
+As we can see, the fit is reasonably good for small deviations, but
+becomes rather poor in the tails. So a robust regression model might be
+more appropriate here.
+
+**2.4. Fit a robust linear regression model in the same settings as in
+2.2. Set a Gamma (0.1,0.1) prior for the precision, and Gaussian priors
+with mean zero and variance** $100$ **for all of the regression
+coefficients (including the intercept). Print out the summary
+statistics. Plot the posterior distribution of the degrees of freedom
+parameter and the variance parameter** $\sigma^2$**. Compute the
+negative sum log CPO (NSLCPO) values for this model (smaller values
+indicate better fit). Compute the standard deviation of the mean
+residuals. Discuss the results.**
+
+We fit a robust regression model by specifying family="T" in the inla
+call. We fix the degrees of freedom parameter at 3 and used the priors
+stated in the problem.
+
+```{r}
+#We use Gamma(0.1,0.1) prior for the precision, and fix dof at 3
+#Note that this has to be done according to the internal parametrisation as we have seen in Lecture 3 and Workshop 3
+prior.t <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)), dof = list(initial=log(3-2), fixed=TRUE) ) 
+
+
+prior.beta <- list(mean.intercept = 0, prec.intercept = 1e-2,
+                    mean = 0, prec = 1e-2)
+
+m.I2=inla(y~transaction+age+distance+stores+longitude+latitude,
+          data=house,family="T",control.compute=list(cpo=T),
+         control.family=list(hyper=prior.t),control.fixed=prior.beta)
+summary(m.I2)
+m.I2.nlscpo=-sum(log(m.I2$cpo$cpo))
+cat("NLSCPO of model 2:",m.I2.nlscpo,"\n")
+
+cat("Standard deviation of mean residuals for model 2:",sd(house$y-m.I2$summary.fitted.values$mean),"\n")
+```
+
+As we can see, the standard deviation of the mean residuals is very
+slightly increased compared to the previous model with Gaussian
+likelihood, but the NLSCPO is much smaller, indicating better fit on the
+data.
+
+We plot the posterior density of $\sigma^2$ by transforming the marginal
+of the precision (m\$marginals.hyperpar[[1]] ) with `inla.tmarginal`.
+
+```{r}
+marg.sigma2 <- inla.tmarginal(function(tau) tau^(-1),
+  m.I2$marginals.hyperpar[[1]])
+plot(marg.sigma2, type ="l",xlab="x",ylab="Density",
+main='Posterior density of sigma2 for model 2')
+
+#Degrees of freedom parameter nu is fixed at 3, so no density plot is needed
+#If you had put a prior on it instead, you can plot its density by
+#plot(m.I2$marginals.hyperpar[[2]], type ="l",xlab="x",ylab="Density",
+#main='Posterior density of dof parameter nu for model 2',xlim=c(2,10))
+
+marg.sigma2
+```
+
+**2.5. Modify the regression models of 2.2 and 2.4 by adding interaction
+terms (such as the regression** $\texttt{y~x1+x2+I(x1*x2)}$ **will
+create an additional covariate** $\texttt{x1*x2}$**). Find a model that
+improves upon the previous models in terms of accuracy (i.e. the mean
+residuals have smaller standard deviation). Print out the summary
+statistics, compute NSLCPO and DIC, and the standard deviation of the
+mean residuals. Discuss the results.**
+
+We include $\texttt{latitude}^2$, $\texttt{longitude}^2$ and
+$\texttt{longitude}\cdot \texttt{latitude}$ in the regression models.
+
+```{r}
+prec.prior <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)))
+
+prior.beta <- list(mean.intercept = 0, prec.intercept = 1,
+                    mean = 0, prec = 1)
+
+m.I3=inla(y~transaction+age+distance+stores+longitude+latitude+I(longitude*longitude)+I(latitude*longitude)+I(latitude*latitude),
+          data=house,family="Gaussian",control.compute=list(cpo=T,dic=T),
+          control.family=list(hyper=prec.prior),control.fixed=prior.beta)
+summary(m.I3)
+m.I3.nlscpo=-sum(log(m.I3$cpo$cpo))
+cat("NLSCPO of model 3:",m.I3.nlscpo,"\n")
+cat("DIC of model 3:",m.I3$dic$dic,"\n")
+cat("Standard deviation of mean residuals for model 3:",sd(house$y-m.I3$summary.fitted.values$mean),"\n")
+```
+
+```{r}
+prior.t <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)), dof = list(initial=log(3-2), fixed=TRUE) ) 
+
+prior.beta <- list(mean.intercept = 0, prec.intercept = 0.01,
+                    mean = 0, prec = 0.01)
+
+m.I4=inla(y~transaction+age+distance+stores+longitude+latitude+I(longitude*longitude)+I(latitude*longitude)+I(latitude*latitude),
+          data=house,family="T",control.compute=list(cpo=T,dic=T),
+         control.family=list(hyper=prior.t),control.fixed=prior.beta,control.inla=list(cmin=0))
+summary(m.I4)
+m.I4.nlscpo=-sum(log(m.I4$cpo$cpo))
+cat("NLSCPO of model 4:",m.I4.nlscpo,"\n")
+cat("DIC of model 4:",m.I4$dic$dic,"\n")
+cat("Standard deviation of mean residuals for model 4:",sd(house$y-m.I4$summary.fitted.values$mean),"\n")
+```
+
+We can see that both the Gaussian and the Student-t models have been
+improved by including these non-linear terms in the formula, and the
+standard deviation of the mean residuals decreased from 0.22 to 0.21 in
+the Gaussian model.
+
+**2.6. Using the model of part 2.2, compute and plot the posterior
+predictive density of the average per unit area house price among all of
+the houses in the dataset (414 in total) at transaction dates 2014.0,
+2015.0 and 2016.0 (these correspond to 1 January). Compute the posterior
+means for all 3 cases. You can assume that the covariates "distance from
+nearest MRT", "number of convenience stores", "latitude", and
+"longitude" stay the same, but the age covariate has to be updated
+according to the transaction date.**
+
+First, we create n=414 rows additional rows in the dataset 3 times, for
+dates 2014.0, 2015.0, 2016.0, with the response variable y set as NA (so
+we will be able to obtain samples from the linear predictor for these
+from INLA, and use this to create posterior predictive samples).
+
+Setting the dates and computing the new age for these new rows is quite
+straightforward.
+
+However, since we have scaled the covariates in part b), we need to
+apply the same scaling (i.e. same linear transformation) on the
+covariates for these new datapoints as well.
+
+To do this, we first compute the mean and standard deviation of the
+original date and age covariates, 
+
+`mean.transaction=mean(house$X1.transaction.date)`
+
+`sd.transaction=sd(house$X1.transaction.date)`
+
+`mean.age=mean(house$X2.house.age)`
+
+`sd.age=sd(house$X2.house.age)`
+
+Using these, we are able to apply the appropriate scaling on the new
+rows.
+
+Once this is done, we fit the Gaussian model from question 2.2 on this
+new dataset, and obtain the linear predictor samples using
+inla.posterior.sample, and then add the Gaussian noise to them according
+to samples from the standard sigma in the same way as we have done in
+Lecture 3. These can be then averaged out among the houses to create
+samples from the average per unit area house prices in 2014.0, 2015.0,
+and 2016.0. These can be plotted using the density function.
+
+```{r}
+n=nrow(house)
+house.predict=rbind(house,house,house,house)
+mean.transaction=mean(house$X1.transaction.date)
+sd.transaction=sd(house$X1.transaction.date)
+mean.age=mean(house$X2.house.age)
+sd.age=sd(house$X2.house.age)
+
+house.predict$y[(n+1):(4*n)]=NA
+house.predict$transaction[(n+1):(2*n)]=(2014.0-mean.transaction)/sd.transaction
+house.predict$transaction[(2*n+1):(3*n)]=(2015.0-mean.transaction)/sd.transaction
+house.predict$transaction[(3*n+1):(4*n)]=(2016.0-mean.transaction)/sd.transaction
+
+house.predict$age[(n+1):(2*n)]=house$age+(2014.0-house$X1.transaction.date)/sd.age
+house.predict$age[(2*n+1):(3*n)]=house$age+(2015.0-house$X1.transaction.date)/sd.age
+house.predict$age[(3*n+1):(4*n)]=house$age+(2016.0-house$X1.transaction.date)/sd.age
+
+
+prec.prior <- list(prec=list(prior = "loggamma", param = c(0.1, 0.1)))
+
+prior.beta <- list(mean.intercept = 0, prec.intercept = 0.01,
+                    mean = 0, prec = 0.01)
+
+m.I5=inla(y~transaction+age+distance+stores+longitude+latitude,
+          data=house.predict,family="Gaussian",control.predictor=list(compute=TRUE),control.compute=list(config=TRUE),
+          control.family=list(hyper=prec.prior),control.fixed=prior.beta)
+
+
+nbsamp=30000
+samp <- inla.posterior.sample(nbsamp, m.I5)
+
+
+sigma.samples=1/sqrt(inla.posterior.sample.eval(function(...) {theta},
+  samp))
+
+#In this model the link function is the identity, so fitted values are the same as the linear predictors 
+#(E(y_i|x,theta)=mu_i=eta_i)
+
+predictor.samples=inla.posterior.sample.eval(function(...) {Predictor},
+samp)
+
+post.pred.samples=matrix(0,nrow=(3*n),ncol=nbsamp)
+
+for(it in 1:(3*n)){
+post.pred.samples[it,]=predictor.samples[n+it,]+rnorm(nbsamp, mean=0,sd=sigma.samples)
+}
+
+post.pred.house.price.samples=exp(post.pred.samples)
+
+
+average.house.price.samples.2014=apply(post.pred.house.price.samples[1:n,], MARGIN=2, FUN=mean)
+average.house.price.samples.2015=apply(post.pred.house.price.samples[(n+1):(2*n),], MARGIN=2, FUN=mean)
+average.house.price.samples.2016=apply(post.pred.house.price.samples[(2*n+1):(3*n),], MARGIN=2, FUN=mean)
+```
+
+```{r}
+plot(density(average.house.price.samples.2014))
+```
+
+```{r}
+plot(density(average.house.price.samples.2015))
+```
+
+```{r}
+plot(density(average.house.price.samples.2016))
+```
+
+```{r}
+cat("Posterior mean of average price in 2014:", mean(average.house.price.samples.2014),"\n")
+cat("Posterior mean of average price in 2015:", mean(average.house.price.samples.2015),"\n")
+cat("Posterior mean of average price in 2016:", mean(average.house.price.samples.2016),"\n")
+```
+
+We can see that the house prices are likely to increase significantly
+every year according to the model.
+
+#### 3. Predicting soccer scores by Poisson regression
+
+#### Adapted from "Modeling outcomes of soccer matches" by Tsokos et al.
+
+**In this question, we are going to use a simple Poisson regression
+model for modelling soccer scores. We will be working with the Premier
+League 2019-2020 scores, that are available at
+<https://www.football-data.co.uk/englandm.php>. Suppose that there are**
+$G$ **games in total, ordered in time.**
+
+**We model the number of goals for the home team and the away team at
+the end of game** $g$ **by two independent Poisson random variables,**
+$$S_g^{H}\sim \text{Poisson}(\lambda_{g}^{H}), \quad S_g^{A}\sim \text{Poisson}(\lambda_{g}^{A}),$$**where**
+$S_g^{H}$ **denotes the number of goals of the home team at game**
+$g$**, and** $S_g^{A}$ **denotes the number of goals of the away team at
+game** $g$**.**
+
+**These are assumed to be Poisson distributed with rates**
+$\lambda_{g}^{H}$ **and** $\lambda_{g}^{A}$**.**
+
+**These rates are related to linear predictors by the** $\log$ **link
+function, i.e.** $\eta_{g}^{H}=\log(\lambda_{g}^{H})$ **and**
+$\eta_{g}^{A}=\log(\lambda_{g}^{A})$**.**
+
+**The linear predictors themselves are going to be modeled as a
+combination of three terms: attacking strength, defending ability, and
+whether the team is playing at home, or away. For each team, we denote
+their attacking strength parameter by** $a_{team}$**, their defending
+strength parameter by** $d_{team}$**, and the effect of playing at home
+as** $h$ **(this effect is assumed to be the same for each team in the
+first instance, but you could also try to make it team specific**
+$h_{team}$**). This quantifies the effect of playing at home on the
+linear predictor of the number of goals, expected to be positive.**
+
+**Our model for the linear predictors (**$\eta_g^{H}$ **is for the goals
+scored by the home team, and is** $\eta_g^{A}$ **is for the away team)
+is the following:**
+
+$$
+\eta_{g}^{H}= \beta_0+a_{home.team}+d_{away.team}+h\\
+\eta_{g}^{A}= \beta_0+a_{away.team}+d_{home.team}
+$$
+
+**Here** $\beta_0$ **is the intercept. In order to avoid model
+identifiability issues (for example, if we increase** $a$ **by a certain
+amount for each team, and decrease** $d$ **by the same amount, nothing
+changes), the convention is to set the attacking and defending strength
+parameter** $a_{team}$ **and** $d_{team}$ **equal to 0 for one of the
+teams (so they are no longer part of the model). This is handled
+automatically by R if you use categorical variables for this.**
+
+**Now we are going to load our dataset, implement this model in INLA,
+and then use our model for computing the posterior probability
+distribution of who will be the champion of the league after each round
+of games.**
+
+**Note that this is a very basic model that could be significantly
+improved by including more covariates.**
+
+**The code below loads the data.**
+
+```{r}
+#We load the Premier League scores dataset of season 2019/2020 
+full.data=read.csv("premier_league_2019_20.csv")
+
+head(full.data)
+
+#The code below displays the info file about the dataset from football_data_notes.txt
+#fname <- 'football_data_notes.txt'
+#s=readChar(fname, file.info(fname)$size)
+#cat(s)
+```
+
+**FTHG means full time home goals, and FTAG means full time away
+goals.**
+
+**There are 20 teams in the Premier League (you can see the list below
+for the season 2019-2020).**
+
+**Every team in the league plays twice against each other, so in total,
+there are 20\*19=380 games per season.**
+
+**The Premier League teams in 2019/20:**
+
+**Arsenal\
+Aston Villa\
+Bournemouth\
+Brighton & Hove Albion\
+Burnley\
+Chelsea\
+Crystal Palace\
+Everton\
+Leicester City\
+Liverpool  Manchester City\
+Manchester United\
+Newcastle United\
+Norwich City\*\
+Sheffield United\*\
+Southampton\
+Tottenham Hotspur\
+Watford\
+West Ham United\
+Wolverhampton Wanderers**
+
+**\* are newly promoted teams**
+
+**3.1. Implement the Poisson regression model described above in INLA on
+this dataset, using the default priors.** **Print out the summary
+statistics for the model, and discuss the results.**
+
+**Hint: you need to store the number of goals scored by the home and
+away teams in a single response vector, y. For example, you can let**
+$y_1,\ldots,y_G$ **correspond to the goals by the home teams in games**
+$1,\ldots,G$**, and** $y_{G+1},\ldots, y_{2G}$ **correspond to the goals
+by the away teams in games** $1,\ldots, G$**.\
+The other covariates should also be adjusted accordingly.**\
+**Using factors (i.e. categorical variables) is recommended.\
+Combining two lists of factors is possible by turning them into strings
+using** $\texttt{as.character}$**, then combining them, and finally
+turning them back to factors by** $\texttt{as.factor}$**.\
+The outcome variables** $y_{1},\ldots, y_{2G}$ **contain the number of
+goals team A scores against another team B (A and B depends on index**
+$i$ **of** $y_i$**).\
+The rate** $\lambda_i$ **for this variable** $y_i$ **in our Poisson
+model, and the corresponding linear predictor** $\eta_i$**, are
+controlled by the attacking strength team** $A$**, the defending
+strength of team** $B$**, and whether team** $A$ **is the home team, or
+not. This model can be described by three categorical variables**
+$\texttt{attack}$**,** $\texttt{defense}$ **and** $\texttt{home}$**,
+with INLA formula of the form**
+$$\texttt{y}\sim \texttt{attack+defense+home},$$**provided that we
+encode the names of the teams A, B and whether team A is the home team
+or not as 3 columns in a dataframe (as factors).**
+
+```{r}
+y=c(full.data$FTHG, full.data$FTAG)
+G=nrow(full.data)
+
+HT_char=as.character(full.data$HomeTeam)
+AT_char=as.character(full.data$AwayTeam)
+attack=as.factor(c(HT_char,AT_char))
+defense=as.factor(c(AT_char,HT_char))
+playing.at.home=c(rep(1,G),rep(0,G))
+
+data=data.frame(y,attack,defense,playing.at.home)
+m.poisson=inla(formula=y~1+attack+defense+playing.at.home, data=data, family="Poisson",control.compute = list(dic = T))
+summary(m.poisson)
+```
+
+As we can see, Manchester City seems to have the strongest attack
+according to the posterior mean of the attack parameter, while Liverpool
+seems to have the best defense.
+
+**3.2. The games in the Premier League happen by rounds (typically
+lasting one week), where each team plays with another one. There are 20
+teams, so 10 games per round.**\
+**Games 10(i-1) +1,..., 10 i in the dataset correspond to round i (there
+are some slight discrepancies in times, but we will ignore them here for
+simplicity).\
+At the end of each game, the winner gets 3 points, the loser gets 0, and
+if its a draw, both teams receive 1 point. Using our Poisson regression
+model, compute the posterior probability of Liverpool winning the league
+(i.e. having the most points at the end of all games) at the end of each
+round for rounds 5, 10,15,20,25,30 and 35. Plot the result.\
+[Hint: you can set the number of goals in the games played after row i
+as NA in the dataset, and then call INLA. The Predictor variables in the
+output of `inla.posterior.sample` contain samples of the linear
+predictors from the posterior, including those for the remaining games.
+You are recommended to write a separate function computing the points
+(i.e. league table) from the scores of all games.]**
+
+First we write a function that computes the league table from the
+scores.
+
+```{r}
+#This function computes the points (i.e. league table) from a list of the scores 
+#(as a 2*G vector, first G elements home team goals for the G games, while (G+1):(2*G) elements are the away team goals)
+#home.t and away.t are vectors of length G that describe the home and away teams for each game
+compute.points <- function(scores,home.t,away.t){
+    n.teams=20;
+    G=380;
+    points=rep(0,n.teams)
+    
+    home.team=as.integer(as.factor(home.t))
+    away.team=as.integer(as.factor(away.t))
+
+    #These lines convert the home and away team names for each game into numbers from 1,2...20     (according to alphabetical order of the names)
+
+   
+       
+    home.win=(scores[1:G]>scores[(G+1):(2*G)])
+    draw=(scores[1:G]==scores[(G+1):(2*G)])
+    away.win=(scores[1:G]<scores[(G+1):(2*G)])
+    
+   
+    
+    for (g in 1:G){
+        if(home.win[g]){
+            points[home.team[g]]=points[home.team[g]]+3
+        }
+        if(away.win[g]){
+            points[away.team[g]]=points[away.team[g]]+3
+        }
+        if(draw[g]){
+            points[home.team[g]]=points[home.team[g]]+1            
+            points[away.team[g]]=points[away.team[g]]+1
+        }
+    }
+    return(points)
+}
+
+
+```
+
+Now we compute the required probability based on the Hint in the
+question.
+
+```{r}
+prob.liverpool.champion=rep(0,7)
+for (i in 1:7){
+#r denotes the round which we are interested in among (5,10,15,20,25,30,35)
+
+r=5*i
+
+#We create a new dataframe where the matches after round r have NA in their response variables y 
+
+data.r=data
+data.r[(10*r+1):G,"y"]<-NA
+data.r[(G+10*r+1):(2*G),"y"]<-NA   
+
+    
+#We fit the Poisson regression model in INLA for this new dataset, including the options needed for sampling
+    
+m.poisson.r=inla(formula=y~1+attack+defense+playing.at.home, data=data.r, family="Poisson",
+                 control.predictor = list(compute = TRUE), control.compute = list(config = TRUE))
+
+    
+
+#We obtain the samples from the linear predictors
+nbsamp=1000
+samp.r <- inla.posterior.sample(nbsamp, m.poisson.r)
+predictors.r=inla.posterior.sample.eval(function(...) {Predictor},
+samp.r)
+
+
+
+#We will store the scores.samples from the posterior predictive in a matrix scores.samples.r
+#First, we fix the values of the scores for the games played up to round r from the original dataset
+scores.samples.r=matrix(0,nrow=2*G,ncol=nbsamp)
+scores.samples.r[1:(10*r),]=rep(data.r[1:(10*r),"y"],nbsamp)
+scores.samples.r[(G+1):(G+10*r),]=rep(data.r[(G+1):(G+10*r),"y"],nbsamp);
+
+#The next step is to sample from the posterior predictive for the scores of the games after round r
+#This is done using the linear predictors, first we compute the rates of the Poisson variables (mean of the observations)
+#by taking the exponential of the linear predictor
+#After this, we sample the variables from the Poisson distribution with these rates
+#This has to be done for the goals of the home team and the away team separately
+#as we store them in different parts of the matrix, but the method is the same    
+
+rates.H=exp(predictors.r[(10*r+1):G,])
+vector.rates.H=as.vector(rates.H)
+scores.samples.r[(10*r+1):G,]=as.matrix(rpois(length(vector.rates.H),vector.rates.H),nrow=(G-10*r),ncol=nbsamp)
+
+rates.A=exp(predictors.r[(G+10*r+1):(2*G),])
+vector.rates.A=as.vector(rates.A)
+scores.samples.r[(G+10*r+1):(2*G),]=as.matrix(rpois(length(vector.rates.A),vector.rates.A),nrow=(G-10*r),ncol=nbsamp)
+
+#Now that we have simulated the results for the remaining games from the posterior predictive, we can compute the probability
+#of Liverpool being the champion
+#At each iteration, we compute the league table (i.e. points for each team) using our compute.points function
+#prob.liverpool.champion is computed by taking the average
+    
+liverpool.champion=rep(0,nbsamp)
+for (it in 1:nbsamp){
+    points=compute.points(scores.samples.r[,it],home.t=full.data$HomeTeam,away.t=full.data$AwayTeam)
+    if(points[10]==max(points)){
+        liverpool.champion[it]=1
+    }
+}
+prob.liverpool.champion[i]=mean(liverpool.champion)
+}
+
+plot(x=seq(from=5,to=35,by=5),y=prob.liverpool.champion,type="l",main='Posterior probability that Liverpool is champion vs round number',
+     xlab="Round number",ylab="Posterior probability that Liverpool is the champion")
+```
