@@ -1,2 +1,2 @@
 # BDA_workshops
-workshops for Bayesian Data Analysis
+Workshops & assignments for Bayesian Data Analysis
