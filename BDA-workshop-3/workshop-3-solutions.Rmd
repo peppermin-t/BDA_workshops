@@ -1,0 +1,1131 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+**University of Edinburgh**
+
+**School of Mathematics**
+
+**Bayesian Data Analysis, 2023/2024, Semester 2**
+
+**Workshop 3: Introduction to Stan**
+
+**Note**: Before starting this practical, you are advised to spend some
+time looking at the Stan examples we have discussed during Lecture 4
+(available in lecture-4.Rmd on Learn). If you already looked at these,
+then feel free to go directly to question 1. The code below loads Stan.
+
+As we are going to use ODE models in this workshop, it is necessary for your Stan version to be at least 2.26.  
+
+```{r}
+library(rstan)
+options(mc.cores = parallel::detectCores())
+stan_version()
+
+#Installing Stan can be done by the next line
+#install.packages("rstan", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+
+#If you have encountered some issues do to previous attempts to install Stan,
+#run the next line first to remove previous versions of rstan 
+#remove.packages(c("StanHeaders", "rstan"))
+
+#Test whether your installation works
+#example(stan_model, package = "rstan", run.dontrun = TRUE)
+```
+
+If your version is below than 2.26, please reinstall it using the instructions above.
+
+**1. Analysis of binomial data: drug example**
+
+**The aim of this question is to re-do most parts of questions 1 and 2
+from the Workshop 1 but now using `Stan`. Remember the context: a new
+drug is being considered for relief of chronic pain, with the success
+rate** $\theta$ **being the proportion of patients experiencing pain
+relief. According to past information, a Beta(9.2, 13.8) prior
+distribution was suggested. This drug had 15 successes out of 20
+patients.**
+
+**1.1. Compute the posterior mean, standard deviation and a** $95\%$
+**credible interval.**
+
+```{r}
+#model in STAN language
+model_string_binomial <-
+"
+data{
+int<lower=0> n;              //n>=0
+int<lower=0> y;
+real a;
+real b;
+}
+
+parameters{
+real theta; //probability of success
+}
+
+model{
+// Prior for theta
+theta~beta(a,b);
+//Likelihood
+y~binomial(n,theta);
+}
+
+"
+
+n=20; y=15; a=9.2; b=13.8;
+
+#data
+data=list(y=y,n=n,a=a,b=b)
+fname="binomial.stan";
+cat(model_string_binomial,file=fname,append=FALSE);
+# list with data and hyperparameters
+
+#passing the model string to STAN
+res1<- stan(file = fname, data = data, 
+           # Below are optional arguments
+           iter = 2000, 
+           #iter is the number of iterations, including the burn-in
+           #the burn-in period is set to iter/2 by default, it can be set to
+           #something else using the warmup parameter
+           chains = 4,cores = parallel::detectCores(),refresh=0)
+#The refresh=0 option hides the long output from stan.
+print(res1)
+```
+
+**1.2. What is the probability that the true success rate is greater
+than 0.6.**
+
+```{r}
+theta_samples=extract(res1)$theta;
+cat("Probability of theta >= 0.6:",mean(theta_samples>0.6));
+
+```
+
+**1.3. Suppose 40 more patients were entered into the study. What is the
+chance that at least 25 of them experience pain relief? Compare with the
+exact result.**
+
+```{r}
+#model in STAN language
+model_string_binomial2 <-
+"data{
+int<lower=0> n;              //n>=0
+int<lower=0> npred;              
+int<lower=0> y;
+real a;
+real b;
+}
+
+parameters{
+real theta; //probability of success
+}
+
+model{
+// Prior for theta
+theta~beta(a,b);
+//Likelihood
+y~binomial(n,theta);
+}
+
+generated quantities{
+int<lower=0> ypred;
+ypred=binomial_rng(npred,theta);
+}
+"
+
+n=20; y=15; a=9.2; b=13.8;
+npred=40;
+
+
+#data
+data=list(y=y,n=n,a=a,b=b,npred=npred)
+fname="binomial2.stan";
+cat(model_string_binomial2,file=fname,append=FALSE);
+# list with data and hyperparameters
+
+#passing the model string to STAN
+res2<- stan(file = fname, data = data, 
+           # Below are optional arguments
+           iter = 5000, 
+           #iter is the number of iterations, including the burn-in
+           #the burn-in period is set to iter/2 by default, it can be set to
+           #something else using the warmup parameter
+           chains = 8,cores = parallel::detectCores(),refresh=0)
+#The refresh=0 option hides the long output from stan.
+print(res2)
+
+prob25=mean(extract(res2)$ypred>=25);
+cat("Probability that at least 25 experience pain relief:",prob25)
+```
+
+It is possible to do an analytical calculation showing that the exact
+value of this is 0.329, which is close to what we have obtained here.
+The difference is due to Monte Carlo that is reduced as the number of
+samples is increased.
+
+
+**2. State space modeling for gray whale abundance**
+
+**In this exercise, we continue work with our state space model from
+Lecture 1.**
+
+**As a recap, we have some observations of gray whale abundance (i.e.
+population size) during some of the years in the period 1951-1997. It
+turns out that it is easier to fit a model on the logarithm of the
+population rather than the population directly. We are going to use the
+following models from the true log-population** $x_t$ **(**$t$ **denotes
+the year),**
+
+$$x_t = b x_{t-1}+u+w_t; \quad w_t\sim N(0,\sigma^2).$$
+
+**The observations are not assumed to be exact, but we allow them to
+have an error, this is modelled as**
+
+$$y_t =x_{t}+v_t, \quad v_t\sim N(0,\eta^2).$$
+
+**This is a simple State-Space Model (SSM), also called Hidden Markov
+Model.** $x_t$ **are the hidden states, and** $y_t$ **are the
+observations.**
+
+The following lines load the dataset and create the observation vector
+$y$.
+
+```{r}
+library("MARSS")
+#This loads to MARSS library
+#If not available, please use install.packages("MARSS") first before loading it
+
+# We load the graywhales dataset, and print out the values
+data(graywhales)
+print(graywhales)
+
+n=1997-1951+1
+
+#STAN cannot handle NA values automatically, so we need to omit the rows with them
+graywhales_no_na=as.data.frame(na.omit(graywhales));
+y=log(graywhales_no_na$Count);
+```
+
+**2.1. Implement the model in Stan using the following prior
+distributions for the model parameters:**
+
+-   **Gaussian prior** $N(\log(2500),1)$ for the initial state $x_0$,
+
+-   **Uniform prior on the interval (0,1) for parameter** $b$,
+
+-   **Exponential prior with parameter 1 for** $u$,
+
+-   **Inverse Gamma prior with parameters (0.1,0.1) for** $\sigma^2$ and
+    $\eta^2$.
+
+**Hint: you can use the code provided with Lecture 3 for this.**
+
+**Compile and run the Stan simulations. Report the effective samples
+sizes for these 5 parameters. Choose the number of steps in the burn-in
+period and the number of MCMC iterations in a way to ensure that the
+effective sample sizes for the 4 parameters** $x_0$,$b$**,** $u$**,**
+$\sigma^2$ **and** $\eta^2$ **are all above 1000. Once this is ensured,
+compute summary statistics and plot the posterior densities of these
+parameters.**
+
+```{r}
+
+#STAN cannot handle NA values automatically, so we need to omit the rows with them
+graywhales_no_na=as.data.frame(na.omit(graywhales));
+y=log(graywhales_no_na$Count);
+ind=graywhales_no_na$Year-1950;
+#So ind=1 corresponds to 1951, ind=2 corresponds to 1952, etc.
+n=length(y);
+max_year_ind=max(ind);
+
+#We create the model string in STAN
+model_string_whale <-   
+"
+data{
+  int<lower=0> n;              //n>=0
+  int<lower=0> max_year_ind;
+  vector[n] y;
+  int<lower=1> ind[n];
+  real bmin;
+  real bmax;
+  real<lower=0> lambda_u;
+  real a_sigma;
+  real b_sigma;
+  real a_eta;
+  real b_eta;
+  real mean_x0;
+  real sd_x0;
+}
+
+parameters{
+  real<lower=bmin,upper=bmax> b;
+  real<lower=0> u;
+  real<lower=0> tau_sigma2;
+  real<lower=0> tau_eta2;
+  vector[max_year_ind] x;
+}
+
+model{
+  real sigma;
+  real eta;
+  b ~ uniform(bmin,bmax);
+  u ~ exponential(lambda_u);
+  tau_sigma2 ~ gamma(a_sigma,b_sigma);
+  tau_eta2 ~ gamma(a_eta,b_eta);
+
+  sigma=1/sqrt(tau_sigma2);
+  eta=1/sqrt(tau_eta2);  
+  
+  x[1]~normal(mean_x0,sd_x0);
+  
+  for(i in 2:max_year_ind) {
+    x[i] ~ normal(b*x[i-1]+u,sigma);
+  }
+  for(i in 1:n) {
+    y[i] ~ normal(x[ind[i]],eta);
+  }
+}
+
+generated quantities{
+  vector[n] yrep;  //replicates, will be needed for question 2.5.
+  real sigma2;
+  real eta2;
+  real eta;
+  sigma2=1/tau_sigma2;
+  eta2=1/tau_eta2;  
+  
+  eta=1/sqrt(tau_eta2);  
+  
+  for(i in 1:n) {
+    yrep[i] = normal_rng(x[ind[i]],eta);
+  }
+}
+"  
+
+
+#We fix the hyperparameters for the priors in some way
+mean_x0=log(2500)
+sd_x0=1
+bmin=0
+bmax=1
+lambda_u=1
+a_sigma=0.1
+b_sigma=0.1
+a_eta=0.1
+b_eta=0.1
+
+data_whale1 <- list(n=n,y=y,ind=ind,max_year_ind=max_year_ind,
+                               mean_x0=mean_x0,sd_x0=sd_x0,
+                               bmin=bmin,bmax=bmax,lambda_u=lambda_u,
+                               a_sigma=a_sigma,b_sigma=b_sigma,
+                               a_eta=a_eta,b_eta=b_eta)
+
+fname="graywhale1.stan";
+cat(model_string_whale,file=fname,append=FALSE);
+
+#passing the model string to STAN
+res_whale<- stan(file = fname, data = data_whale1, 
+           # Below are optional arguments
+           iter = 4000, 
+           chains = 4,cores = parallel::detectCores(),refresh=0)
+print(res_whale,pars=c("b","u","sigma2","eta2"))
+```
+
+```{r}
+library(bayesplot)
+#This package allows for better-looking density plots
+mcmc_dens(res_whale, pars=c("b","u","sigma2","eta2"))
+```
+
+**2.2. Now we are going to perform prior sensitivity checks. Try a
+different prior distribution for the 5 variables. For** $x_0$**, please
+do not change the mean significantly from log(2500), but you can try a
+different variance. When formulating priors, you are encouraged to use
+your understanding of the model parameters and biological facts (see
+e.g. <https://en.wikipedia.org/wiki/Gray_whale>). Run the simulations
+again, and compare the summary statistics and posterior density plots of
+these 5 parameters.**
+
+To choose the priors on the model parameters in a more informed fashion,
+we have looked at
+
+the Wikipedia page for gray whales,
+<https://en.wikipedia.org/wiki/Gray_whale.>
+
+It is stated that they typically live for 55-70 years, and females give
+birth to a single calf
+
+weighting around 1 tonne typically every 2 years during their adult
+life.
+
+If approximately half of the whales are females, and approximately one
+third of them gives
+
+birth each year, then the number of newborns per year is approximately
+1/6'th of the
+
+population. So choosing the parameter $u\approx 6$ seems reasonable, and
+for this reason, we
+
+choose an exponential prior with parameter lambda.u=6 (expected value
+according to the
+
+prior is 1/ lambda.u=1/6). The parameter $b$ is related to the decrease
+in the population due to
+
+deaths. As the typical life time of gray whales that make it to
+adulthood is 55-70 years, we
+
+feel that this cannot be very low, so instead of a uniform prior on
+[0,1], we set a uniform prior
+
+on [0.5, 1] in this case. For the priors on the variances $\sigma^2$ and
+$\eta^2$, we choose
+
+Inverse Gamma (1, 1/20). This is much more concentrated, with most of
+the mass contained
+
+in the interval [0,0.1] (corresponding to lower noise). We have also
+increased the precision of the Gaussian prior on $x_0$ to 2, while kept
+the mean at $\log(2500)$.
+
+```{r}
+mean.x0=log(2500)
+prec.x0=2
+bmin=0.5
+bmax=1
+lambda.u=6
+a.sigma=1
+b.sigma=1/20
+a.eta=1
+b.eta=1/20
+max_year_ind=max(ind);
+
+
+data_whale2 <- list(n=n,y=y,ind=ind,max_year_ind=max_year_ind,
+                               mean_x0=mean_x0,sd_x0=sd_x0,
+                               bmin=bmin,bmax=bmax,lambda_u=lambda_u,
+                               a_sigma=a_sigma,b_sigma=b_sigma,
+                               a_eta=a_eta,b_eta=b_eta)
+
+fname="graywhale1.stan";
+
+#passing the model string to STAN
+res_whale2<- stan(file = fname, data = data_whale2, 
+           # Below are optional arguments
+           iter = 4000, 
+           chains = 4,cores = parallel::detectCores(),refresh=0)
+print(res_whale2,pars=c("b","u","sigma2","eta2","x[1]"))
+```
+
+```{r}
+mcmc_dens(res_whale2, pars=c("b","u","sigma2","eta2","x[1]"))
+```
+
+There is a little bit of change, but the results do not seem to be
+sensitive to the change of prior.
+
+**2.3.** **Update the model to compute the posterior distribution of the
+log population sizes (**$x_t$**) every year between 1951-2050. Plot the
+evolution of the posterior mean of the log population sizes from
+1951-2050 on a single plot, along with two other curves that correspond
+to the [2.5%, 97.5%] credible interval of the log population size
+(**$x_t$**) according to the posterior distribution at each year.
+Finally, estimate the posterior probability that the population of gray
+whales becomes smaller than 100 at any year from 1951 until the end of
+2050 (i.e.,** $p(\min_{t\in \{0,1\ldots,99\}} x_t<=\log(100)|y)$**).**
+
+```{r}
+
+mean.x0=log(2500)
+prec.x0=2
+bmin=0.5
+bmax=1
+lambda.u=6
+a.sigma=1
+b.sigma=1/20
+a.eta=1
+b.eta=1/20
+max_year_ind=100;
+#In this case, we want to model the hidden compontent x[t] from 1951 until 2050, so 100 years in total
+#This could also be done by generating the additional years in the generated quantities block
+
+data_whale3 <- list(n=n,y=y,ind=ind,max_year_ind=max_year_ind,
+                               mean_x0=mean_x0,sd_x0=sd_x0,
+                               bmin=bmin,bmax=bmax,lambda_u=lambda_u,
+                               a_sigma=a_sigma,b_sigma=b_sigma,
+                               a_eta=a_eta,b_eta=b_eta)
+
+fname="graywhale1.stan";
+
+#passing the model string to STAN
+res_whale3<- stan(file = fname, data = data_whale3, 
+           # Below are optional arguments
+           iter = 8000, 
+           chains = 4,cores = parallel::detectCores(),refresh=0)
+#print(res_whale2,pars=c("b","u","sigma2","eta2","x[1]"))
+
+```
+
+```{r}
+xres=extract(res_whale3)$x;
+#We combine the results from all chains into a single dataframe
+
+x.mean=apply(xres,MARGIN=2, FUN=mean)
+x.q025=apply(xres, MARGIN=2, FUN=function(x) quantile(x,prob=0.025))
+x.q975=apply(xres, MARGIN=2, FUN=function(x) quantile(x,prob=0.975))
+#We compute the posterior means and the 95% credible interval by the apply function
+             
+
+plot(1951:2050, x.mean,type="l",ylim=c(7.5,14),main="Posterior mean and 95% credible intervals for log population size", xlab="Year",ylab="Log population size")
+lines(1951:2050, x.q025,lty=3,col="dark red")
+lines(1951:2050, x.q975,lty=3,col="dark red")
+```
+
+**2.4. We are going to perform posterior predictive checks to evaluate
+the fit of this model on the data. First, create replicate observations
+from the posterior predictive using Stan. The number of replicate
+observations should be at least 1000. Compute the minimum, maximum,
+median, kurtosis and skewness for the replicated observations. Plot the
+histograms for these quantities together with a line that shows the
+value of the function considered on the actual dataset (see the R code
+for Lecture 1 for an example). Perform these checks both for the
+original prior from Question 2.1, and the prior you have proposed in
+Question 2.2. Discuss the results.**
+
+```{r}
+#Since we already had the replicates in the model, we can just extract these from the samples
+
+yrep.samples=extract(res_whale3)$yrep
+
+yrep.samples.min=apply(yrep.samples,MARGIN=1, FUN=min)
+yrep.samples.max=apply(yrep.samples,MARGIN=1, FUN=max)
+yrep.samples.median=apply(yrep.samples,MARGIN=1, FUN=median)
+require(fBasics)
+yrep.samples.kurtosis=apply(yrep.samples,MARGIN=1, FUN=kurtosis)
+yrep.samples.skewness=apply(yrep.samples,MARGIN=1, FUN=skewness)
+
+par(mfrow=c(3,2))
+hist(yrep.samples.min,col="gray40",main="Predictive distribution for min")
+abline(v=min(y),col="red",lwd=2)
+hist(yrep.samples.max,col="gray40",main="Predictive distribution for max")
+abline(v=max(y),col="red",lwd=2)
+hist(yrep.samples.median,col="gray40",main="Predictive distribution for median")
+abline(v=median(y),col="red",lwd=2)
+hist(yrep.samples.kurtosis,col="gray40",main="Predictive distribution for kurtosis")
+abline(v=kurtosis(y),col="red",lwd=2)
+hist(yrep.samples.skewness,col="gray40",main="Predictive distribution for skewness")
+abline(v=skewness(y),col="red",lwd=2)
+par(mfrow=c(1,1))
+```
+
+**3. Multivariate Multiple Regression - Seemingly Unrelated
+Regressions**
+
+**In this exercise, we are going to work on the high school exam scores
+dataset from Lecture 3.** **We start by loading the dataset, and fitting
+regression models on all exam scores ()**
+
+```{r}
+#Loading the dataset
+df<-read.csv("sur_scores.csv",header = TRUE, sep = ",")
+head(df)
+```
+
+```{r}
+df$prog=as.factor(df$prog)
+#converting prog it to factor format (categorical variable)
+#the rest of the covariates are textual, so automatically treated as categorical
+m1<-lm(cbind(math,read, write, science, socst)~female+race+ses+schtyp+prog,data=df)
+#socst refers to social studies
+#when using the cbind(math,read, write, science, socst) as response, two independent linear models are fitted for each response
+summary(m1)
+```
+
+**3.1. Fit a Bayesian Multivariate Multiple Regression model in Stan for
+these response variables using female, race, ses, schtyp, and prog as
+covariates (see the code of Lecture 3, available in lecture-3.Rmd on
+Learn).**
+
+**Assume that the covariance matrix between the error terms is diagonal
+(i.e. the regressions are independent).**
+
+**Print out the summary statistics, and compute the RMSE values over the
+whole dataset.**
+
+```{r}
+X<-model.matrix(~female+race+ses+schtyp+prog,data=df);
+#The model.matrix automatically converts the categorical variables into dummy (0/1) variables
+#The interecept is included, i.e. the first column of X is all 1
+y=cbind(math=df$math,read=df$read,write=df$write,science=df$science,socst=df$socst)
+
+n=nrow(X)
+nb=ncol(X)
+nresp=ncol(y)
+mean_beta=0;
+sd_beta=50;
+gamma_cauchy=10;
+
+model_string_mmr<-
+"
+data {
+  int<lower=0> n;              // num individuals (number of rows in model matrix X)
+  int<lower=0> nb;              // num of columns in model matrix X (number of predictors + 1, for intercept)
+  int<lower=0> nresp;           //number of different types of response variables modelled (here it is 5)
+  matrix[n, nb] X;               // model matrix
+  matrix[n,nresp] y;                 // outcomes
+  real mean_beta;
+  real sd_beta;
+  real gamma_cauchy;         //scale parameter of cauchy prior for the eigenvalues
+}
+parameters {
+  vector<lower=0>[nresp] Sqrt_Sigma_eig;      // square root of eigenvalues of covariance matrix, with positivity constraint
+  matrix[nb,nresp] beta;              //regression coefficients, this is a matrix due to multiple response variables
+}
+
+model {
+  Sqrt_Sigma_eig ~ cauchy(0, gamma_cauchy);
+  to_vector(beta) ~ normal(mean_beta,sd_beta); //All regression coefficients have an independent normal prior 
+
+  {
+  matrix[n,nresp] mu;                 // fitted values
+  matrix[nresp,nresp] Sigma;                 // covariance matrix
+  mu=X*beta;    // matrix-vector product
+  Sigma=diag_matrix(Sqrt_Sigma_eig .* Sqrt_Sigma_eig); //.* means elementwise product
+  for (i in 1:n)
+    to_vector(y[i,1:nresp]) ~ multi_normal(to_vector(mu[i,1:nresp]), Sigma);
+  }
+}
+
+generated quantities{
+  matrix[n,nresp] mu;                 // fitted values
+  matrix[n,nresp] yrep;   //replicates for posterior predictive checks
+  matrix[nresp,nresp] Sigma;               
+
+  mu=X*beta; 
+  
+  Sigma=diag_matrix(Sqrt_Sigma_eig .* Sqrt_Sigma_eig); //.* means elementwise product
+  for (i in 1:n){
+    yrep[i,1:nresp] = to_row_vector(multi_normal_rng(to_vector(mu[i,1:nresp]), Sigma)); 
+  }
+}
+
+"
+
+fname="mmr.stan";
+cat(model_string_mmr,file=fname,append=FALSE);
+
+data_mmr=list(n=n, nb=nb, nresp=nresp, y=y,X=X, sd_beta=sd_beta, mean_beta=mean_beta, gamma_cauchy=gamma_cauchy);
+
+#passing the model string to STAN
+res_mmr<- stan(file = fname, data = data_mmr, 
+           # Below are optional arguments
+           iter = 1000, 
+           chains = 4,cores = parallel::detectCores())
+print(res_mmr, pars=c("Sqrt_Sigma_eig"))
+```
+
+```{r}
+fitted_values=matrix(apply(extract(res_mmr)$mu,2,mean),nrow=n,ncol=nresp); #computing the mean of the samples of mu
+library(Metrics)
+rmse(fitted_values[,1],y[,1]) #rmse of math
+rmse(fitted_values[,2],y[,2]) #rmse of read
+rmse(fitted_values[,3],y[,3]) #rmse of write
+rmse(fitted_values[,4],y[,4]) #rmse of science
+rmse(fitted_values[,5],y[,5]) #rmse of social studies
+```
+
+**3.2. Set a prior distribution on the error covariance matrix that
+allows for non-diagonal matrices too (one possible way is by setting a
+prior on the correlation matrix and the eigenvalues of the covariance
+matrix separately, see the code of Lecture 3). Re-fit your Bayesian
+Multivariate Multiple Regression model using this prior, i.e. allow for
+non-diagonal covariances.**
+
+**Print out the summary statistics, and compute the RMSE values over the
+whole dataset.**
+
+```{r}
+X<-model.matrix(~female+race+ses+schtyp+prog,data=df);
+#The model.matrix automatically converts the categorical variables into dummy (0/1) variables
+#The interecept is included, i.e. the first column of X is all 1
+y=cbind(math=df$math,read=df$read,write=df$write,science=df$science,socst=df$socst)
+
+n=nrow(X)
+nb=ncol(X)
+nresp=ncol(y)
+mean_beta=0;
+sd_beta=50;
+gamma_cauchy=10;
+
+model_string_mmr2<-
+"
+data {
+  int<lower=0> n;              // num individuals (number of rows in model matrix X)
+  int<lower=0> nb;              // num of columns in model matrix X (number of predictors + 1, for intercept)
+  int<lower=0> nresp;           //number of different types of response variables modelled (here it is 5)
+  matrix[n, nb] X;               // model matrix
+  matrix[n,nresp] y;                 // outcomes
+  real mean_beta;
+  real sd_beta;
+  real gamma_cauchy;         //scale parameter of cauchy prior for the eigenvalues
+}
+parameters {
+  corr_matrix[nresp] Omega;        // correlation matrix
+  vector<lower=0>[nresp] Sqrt_Sigma_eig;      // square root of eigenvalues of covariance matrix, with positivity constraint
+  matrix[nb,nresp] beta;              //regression coefficients, this is a matrix due to multiple response variables
+}
+
+model {
+  Omega ~ lkj_corr(1);
+  Sqrt_Sigma_eig ~ cauchy(0, gamma_cauchy);
+  to_vector(beta) ~ normal(mean_beta,sd_beta); //All regression coefficients have an independent normal prior 
+
+  {
+  matrix[n,nresp] mu;                 // fitted values
+  matrix[nresp,nresp] Sigma;                 // covariance matrix
+  mu=X*beta;    // matrix-vector product
+  Sigma=quad_form_diag(Omega, Sqrt_Sigma_eig);
+  for (i in 1:n)
+    to_vector(y[i,1:nresp]) ~ multi_normal(to_vector(mu[i,1:nresp]), Sigma);
+  }
+}
+
+generated quantities{
+  matrix[n,nresp] mu;                 // fitted values
+  matrix[n,nresp] yrep;   //replicates for posterior predictive checks
+  matrix[nresp,nresp] Sigma;               
+
+  mu=X*beta; 
+  
+  Sigma=quad_form_diag(Omega, Sqrt_Sigma_eig);
+  for (i in 1:n){
+    yrep[i,1:nresp] = to_row_vector(multi_normal_rng(to_vector(mu[i,1:nresp]), Sigma)); 
+  }
+}
+"
+
+fname="mmr2.stan";
+cat(model_string_mmr2,file=fname,append=FALSE);
+
+data_mmr=list(n=n, nb=nb, nresp=nresp, y=y,X=X, sd_beta=sd_beta, mean_beta=mean_beta, gamma_cauchy=gamma_cauchy);
+
+n_iter=1000;
+#passing the model string to STAN
+res_mmr2<- stan(file = fname, data = data_mmr, 
+           # Below are optional arguments
+           iter = n_iter, 
+           chains = 4,cores = parallel::detectCores())
+print(res_mmr2, pars=c("Omega","Sqrt_Sigma_eig"))
+```
+
+```{r}
+fitted_values=matrix(apply(extract(res_mmr)$mu,2,mean),nrow=n,ncol=nresp); #computing the mean of the samples of mu
+library(Metrics)
+rmse(fitted_values[,1],y[,1]) #rmse of math
+rmse(fitted_values[,2],y[,2]) #rmse of read
+rmse(fitted_values[,3],y[,3]) #rmse of write
+rmse(fitted_values[,4],y[,4]) #rmse of science
+rmse(fitted_values[,5],y[,5]) #rmse of social studies
+```
+
+**3.3. Perform posterior predictive checks for both models. Discuss the
+results.**
+
+First, we do this for the model from 3.1 (we have yrep included in the
+model already, so it can be extracted from the samples).
+
+```{r}
+
+yrep.samples=array(extract(res_mmr)$yrep,dim=c(n_iter,n*nresp))
+
+yrep.samples.min=apply(yrep.samples,MARGIN=1, FUN=min)
+yrep.samples.max=apply(yrep.samples,MARGIN=1, FUN=max)
+yrep.samples.median=apply(yrep.samples,MARGIN=1, FUN=median)
+require(fBasics)
+yrep.samples.kurtosis=apply(yrep.samples,MARGIN=1, FUN=kurtosis)
+yrep.samples.skewness=apply(yrep.samples,MARGIN=1, FUN=skewness)
+
+par(mfrow=c(3,2))
+hist(yrep.samples.min,col="gray40",main="Predictive distribution for min")
+abline(v=min(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.max,col="gray40",main="Predictive distribution for max")
+abline(v=max(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.median,col="gray40",main="Predictive distribution for median")
+abline(v=median(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.kurtosis,col="gray40",main="Predictive distribution for kurtosis",xlim=c(-1,1))
+abline(v=kurtosis(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.skewness,col="gray40",main="Predictive distribution for skewness")
+abline(v=skewness(as.vector(y)),col="red",lwd=2)
+par(mfrow=c(1,1))
+```
+
+Now, we do this for the model from 3.2.
+
+```{r}
+
+yrep.samples=array(extract(res_mmr2)$yrep,dim=c(n_iter,n*nresp))
+
+yrep.samples.min=apply(yrep.samples,MARGIN=1, FUN=min)
+yrep.samples.max=apply(yrep.samples,MARGIN=1, FUN=max)
+yrep.samples.median=apply(yrep.samples,MARGIN=1, FUN=median)
+require(fBasics)
+yrep.samples.kurtosis=apply(yrep.samples,MARGIN=1, FUN=kurtosis)
+yrep.samples.skewness=apply(yrep.samples,MARGIN=1, FUN=skewness)
+
+par(mfrow=c(3,2))
+hist(yrep.samples.min,col="gray40",main="Predictive distribution for min")
+abline(v=min(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.max,col="gray40",main="Predictive distribution for max")
+abline(v=max(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.median,col="gray40",main="Predictive distribution for median")
+abline(v=median(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.kurtosis,col="gray40",main="Predictive distribution for kurtosis",xlim=c(-1,1))
+abline(v=kurtosis(as.vector(y)),col="red",lwd=2)
+hist(yrep.samples.skewness,col="gray40",main="Predictive distribution for skewness")
+abline(v=skewness(as.vector(y)),col="red",lwd=2)
+par(mfrow=c(1,1))
+```
+
+The results seem to be similar for both models. The fit is not very good
+for minimum, maximum and kurtosis (third moment), suggesting that using
+a heavy tailed distribution such as Student-t distribution might be more
+appropriate for this data.
+
+**4. Infectious disease model.**
+
+**In this excercise, we are going to implement a Bayesian infectious
+disease model, based on the paper "Bayesian workflow for disease
+transmission modeling in Stan'' by Grinsztajn et al.**
+
+We will use a simple SIR model (Susceptible/Infected/Recovered), which
+is a population based model (i.e. individual characteristics are not
+taken into account).
+
+Let $N$ denote the total size of the population (assumed to stay
+constant).
+
+Let $S$ , $I$, and $R$ denote the number of Susceptible (i.e. they can
+be infected), Infected, and Recovered persons. These depend on the time
+parameter $t$.
+
+The evolution of these is modeled with the following ODE (ordinary
+differential equation):
+
+$$
+\begin{aligned}
+ \frac{dS}{dt} &= -\beta  S \frac{I}{N}\\
+ \frac{dI}{dt} &= \beta  S  \frac{I}{N} - \gamma  I \\
+ \frac{dR}{dt} &= \gamma I
+\end{aligned}
+$$ where
+
+-   $S(t)$ is the number of people susceptible to becoming infected (no
+    immunity),
+
+-   $I(t)$ is the number of people currently infected (and infectious),
+
+-   $R(t)$ is the number of recovered people (we assume they remain
+    immune indefinitely),
+
+-   $\beta$ is the constant rate of infectious contact between people,
+
+-   $\gamma$ the constant recovery rate of infected individuals.
+
+There are certain assumptions required for this model to be a reasonable
+approximation of infection spread (such as no births or deaths, i.e.
+$S(t)+I(t)+R(t)=N$ for all times), see the original paper for more
+details.
+
+In general, infections start from one individual, we choose the initial
+conditions $$I(0)=1, \quad R(0)=0, \quad S(0)=N-1.$$
+
+In addition to the mathematical model itself, we also allow for
+observation noise, by modelling the observed infections as
+
+$$ I_\text{obs}(t) \sim \text{NegBin}(I(t),
+\phi).$$
+
+The Negative Binomial distribution has two parameters, it's mean
+($I(t)$) and overdispersion parameter ($\phi$), see
+
+<https://mc-stan.org/docs/functions-reference/nbalt.html>
+
+We are going apply this model to a small dataset. This is about
+influenza infections among students in a boarding school in England in
+1978, from 1978-01-22 until 1978-02-04. There were $N=763$ students in
+the school in total, 512 of them got infected at some point during this
+period. The dataset is available as part of the outbreaks package.
+
+```{r}
+library(outbreaks)
+print.data.frame(influenza_england_1978_school)
+```
+
+**4.1.** **Implement the above model on this dataset by assuming that
+\$I(0)=1\$, and the observations** $I_\text{obs}(t)$ **for**
+$t=1,\ldots,14$ **correspond to the in_bed column in the dataset. You
+can either choose priors for the model parameters yourself, or choose
+your priors as suggested in the original paper "Bayesian workflow for
+disease transmission modeling in Stan''.**
+
+**Hint: Since this process is defined in continuous time, and the
+observations are in discrete time, you will need to solve the ODE
+governing the dynamics within your Stan model, and then generate the
+observations based on the solution of this ODE.**
+
+**To do this, you will first need to define a function that computes the
+derivatives (i.e. right hand side of the ODE). Such functions need to go
+to the function{} block, that comes before any other blocks (such as
+data, etc.), a simple example:**
+
+    functions {
+
+    real add_up(real a, real b){
+      return a + b;
+    }
+
+    }
+
+**You can see how to create user defined functions here:
+<https://mc-stan.org/docs/reference-manual/function-definition-block.html>**
+
+**The ODE itself can be solved using the ODE_rk45 solver, which has the
+following parametrization,**
+
+`array[] vector` `ode_rk45(function ode, vector initial_state, real initial_time, array[] real times, ...)`**\
+See
+<https://mc-stan.org/docs/functions-reference/functions-ode-solver.html>
+for more options.**
+
+**Here ode is the function specifying the right hand side of the ODE.
+This has to be in a specific format:**
+
+    vector ode(real t, vector y, ...);
+
+**The first argument to the system function is time, passed as a `real`;
+the second argument to the system function is the system state, passed
+as a `vector`, and the return value from the system function are the
+current time derivatives of the state defined as a `vector`. Additional
+arguments can be included in the system function to pass other
+information into the solve (these will be passed through the function
+that starts the ODE integration). These argument can be parameters,
+data, or any quantities that are needed to define the differential
+equation.**
+
+**For some examples, see
+<https://mc-stan.org/docs/stan-users-guide/coding-the-ode-system-function.html>.**
+
+```{r}
+
+model_string_SIR <-
+"
+functions{
+
+vector der(real t, vector SIR, vector theta)
+{
+      real S = SIR[1];
+      real I = SIR[2];
+      real R = SIR[3];
+      
+      real beta=theta[1];
+      real gamma=theta[2];
+      real N=theta[3];
+      vector[3] dSIR;
+      
+      real dS_dt = -beta * I * S / N;
+      real dI_dt =  beta * I * S / N - gamma * I;
+      real dR_dt =  gamma * I;
+
+      dSIR=to_vector([dS_dt, dI_dt, dR_dt]);
+      return dSIR;
+      
+}
+
+}
+
+
+
+
+data {
+  int<lower=1> n_days;
+  int<lower=1> n_days_out;
+  vector[3] SIR0;
+  real t0;
+  real ts[n_days];
+  real ts_out[n_days_out];
+  int<lower=0> N;
+  int cases[n_days];
+}
+
+parameters {
+  real<lower=0> gamma;
+  real<lower=0> beta;
+  real<lower=0> phi_inv;
+}
+
+model{
+  real phi;
+  vector[3] SIR[n_days];
+  vector[3] theta;
+  vector[3] der0;
+
+  //priors
+  beta ~ normal(2, 1);
+  gamma ~ normal(0.4, 0.5);
+  phi_inv ~ exponential(5);
+  phi=1/phi_inv;
+  theta=to_vector([beta,gamma,N]);
+  
+  SIR=ode_rk45(der, SIR0, t0, ts, theta);
+  
+  //sampling distribution
+  //col(matrix x, int n) - The n-th column of matrix x. Here the number of infected people 
+  for(t in 1:n_days){
+  cases[t] ~ neg_binomial_2(SIR[t,2], phi);
+  }
+}
+
+generated quantities
+{
+  real I[n_days_out];
+  int cases_rep[n_days];
+  //variables defined inside curly brackets have a local scope 
+  //and won't be saved, reducing memory use
+  {
+    vector[3] SIR[n_days_out];
+    vector[3] theta;
+    real phi;
+    theta=to_vector([beta,gamma,N]);
+    phi=1/phi_inv;
+    SIR=ode_rk45(der, SIR0, t0, ts_out, theta);
+    I=SIR[1:n_days_out,2];
+    for(t in 1:n_days){
+      cases_rep[t] = neg_binomial_2_rng(SIR[t,2], phi);
+    }
+  }
+}
+"
+
+N=763;
+SIR0=c(N-1,1,0);
+n_days=nrow(influenza_england_1978_school);
+t0=0;
+ts=as.double(1:n_days);
+cases=influenza_england_1978_school$in_bed;
+
+#data
+data=list(SIR0=SIR0, N=N,n_days=n_days,n_days_out=n_days, t0=t0,ts=ts,ts_out=ts, cases=cases);
+fname="SIR.stan";
+cat(model_string_SIR,file=fname,append=FALSE);
+# list with data and hyperparameters
+
+#passing the model string to STAN
+res_SIR1<- stan(file = fname, data = data, 
+           # Below are optional arguments
+           iter = 2000, 
+           #iter is the number of iterations, including the burn-in
+           #the burn-in period is set to iter/2 by default, it can be set to
+           #something else using the warmup parameter
+           chains = 4,cores = parallel::detectCores())
+#The refresh=0 option hides the long output from stan.
+print(res_SIR1)
+```
+
+**4.2. Compile the model, run the MCMC sampler, and print out the
+summary statistics from the model parameters. Plot the posterior mean of the modeled number of
+infections per day** $I(t)$ **against the observed number of
+infections** $I_{obs}(t)$.
+
+```{r}
+I.post.mean=colMeans(extract(res_SIR1)$I)
+Iobs=influenza_england_1978_school$in_bed;
+data.frame(I.post.mean, Iobs)
+```
+```{r}
+matplot(data.frame(I.post.mean,Iobs), type = "b",pch=1,col = 1:2)
+legend("topright", legend = c("I.post.mean","Iobs"), col=1:2, pch=1)
+```
+
+
+**4.3. Evaluate the predictive performance of this model by repeatedly
+fitting it on the data from days** $1,\ldots, t$ **and predict the
+number of infections on days** $t+1$, from $t=3$ **until** $t=13$**.
+Plot the estimated infections versus the observed values.**
+
+```{r}
+mean_predicted_I=rep(0,14);
+for(t in 3:13)
+{
+N=763;
+SIR0=c(N-1,1,0);
+n_days=t;
+n_days_out=t+1;
+t0=0;
+ts=as.double(1:n_days);
+ts_out=as.double(1:n_days_out);
+cases=influenza_england_1978_school$in_bed[1:n_days];
+
+#data
+data=list(SIR0=SIR0, N=N,n_days=n_days,n_days_out=n_days_out, t0=t0,ts=ts,ts_out=ts_out, cases=cases);
+fname="SIR.stan";
+
+#passing the model string to STAN
+res_SIR2<- stan(file = fname, data = data, 
+           iter = 2000, 
+           chains = 4,cores = parallel::detectCores())
+
+mean_predicted_I[t+1]=mean(extract(res_SIR2)$I[,t+1]);
+}
+
+matplot(data.frame(mean_predicted_I[4:14],Iobs[4:14]), type = "b",pch=1,col = 1:2)
+legend("topright", legend = c("Predicted infections","Observed infections"), col=1:2, pch=1)
+
+```
+
+**4.4. Perform posterior predictive model checks. Discuss your
+results.**
+
+```{r}
+yrep=extract(res_SIR1)$cases_rep;
+y=influenza_england_1978_school$in_bed;
+
+yrepmax=apply(yrep,1,max)
+yrepmedian=apply(yrep,1,median)
+require(fBasics)
+yrepskewness=apply(yrep,1,skewness)
+yrepkurtosis=apply(yrep,1,kurtosis)
+
+#Predictive checks using replicated data - maximum
+hist(yrepmax,col="gray40")
+abline(v=max(y),col="red",lwd=2)
+```
+
+```{r}
+#Predictive checks using replicated data - median
+hist(yrepmedian,col="gray40")
+abline(v=median(y),col="red",lwd=2)
+```
+
+
+
+
+```{r}
+#Predictive checks using replicated data - skewness
+hist(yrepskewness,col="gray40")
+abline(v=skewness(y),col="red",lwd=2)
+```
+
+
+
+```{r}
+
+#Predictive checks using replicated data - kurtosis
+hist(yrepkurtosis,col="gray40")
+abline(v=kurtosis(y),col="red",lwd=2)
+```
+
+
+The posterior predictive checks do not detect issues with the fit of the model on this dataset.

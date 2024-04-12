@@ -1,0 +1,178 @@
+# Spatial Model in INLA
+
+```{r}
+coords = as.matrix(housing.training[, c("longitude", "latitude")]) 
+plot(coords)
+
+hsdomain = inla.nonconvex.hull(
+  as.matrix(housing.training[, c("longitude", "latitude")]),
+  convex=-0.03, concave=-0.05, resolution=c(100, 100))
+plot(hsdomain)
+
+hsmesh = inla.mesh.2d(boundary=hsdomain, max.edge=c(0.45, 1), cutoff=0.2)
+plot(hsmesh)  # maxedge 10, 20?
+```
+
+```{r}
+Locations = cbind(housing.training$longitude, housing.training$latitude) 
+loc.spde = inla.spde2.pcmatern(mesh=hsmesh,
+           prior.range=c(1, 0.1),
+           prior.sigma=c(200, 0.1))
+
+#The choices of the priors are crucial for good performance
+#See https://rdrr.io/github/INBO-BMK/INLA/man/inla.spde2.pcmatern.html for a description on the meaning of the prior parameters
+#In particular, we need to set prior.sigma to sufficiently large, since the response variable changes on a scale of 200.
+
+loc.A = inla.spde.make.A(hsmesh, loc=Locations) 
+loc.w = inla.spde.make.index('w', n.spde=loc.spde$n.spde)
+
+# tryout
+housing.training$housing_median_age.std2 = housing.training$housing_median_age.std ^ 2
+housing.training$housing_median_age.std3 = housing.training$housing_median_age.std ^ 3
+housing.training$housing_median_age.std4 = housing.training$housing_median_age.std ^ 4
+housing.training$median_income.stdlog2 = housing.training$median_income.stdlog ^ 2
+housing.training$median_income.stdlog3 = housing.training$median_income.stdlog ^ 3
+housing.training$median_income.stdlog4 = housing.training$median_income.stdlog ^ 4
+housing.training$housing_median_age.std_median_income.stdlog = housing.training$housing_median_age.std * housing.training$median_income.stdlog
+
+housing.training$op_near_bay = as.numeric(housing.training$ocean_proximity == "NEAR BAY")
+housing.training$op_inland = as.numeric(housing.training$ocean_proximity == "INLAND")
+housing.training$op_near_ocean = as.numeric(housing.training$ocean_proximity == "NEAR OCEAN")
+housing.training$op_island = as.numeric(housing.training$ocean_proximity == "ISLAND")
+
+# Make the model matrix using the final model selection formula without response and intercept.
+# X0 = model.matrix(
+#   as.formula(" ~ 0 + longitude.std + latitude.std +
+#              housing_median_age.std + I(housing_median_age.std ^ 2) +
+#              I(housing_median_age.std ^ 3) + I(housing_median_age.std ^ 4) +
+#              median_income.stdlog + I(median_income.stdlog ^ 2) +
+#              I(median_income.stdlog ^ 3) + I(median_income.stdlog ^ 4) +
+#              housing_median_age.std : median_income.stdlog +
+#               average_bed_rooms.std"), data=housing.training)
+X0 = model.matrix(
+  as.formula(" ~ 0 + longitude.std + latitude.std +
+             housing_median_age.std + housing_median_age.std2 +
+             housing_median_age.std3 + housing_median_age.std4 +
+             median_income.stdlog + median_income.stdlog2 +
+             median_income.stdlog3 + median_income.stdlog4 +
+             housing_median_age.std_median_income.stdlog +
+             op_near_bay + op_inland + op_near_ocean + op_island +
+             average_bed_rooms.std"), data=housing.training)
+X = as.data.frame(X0) # convert to a data frame.
+
+# Making the stack ####
+
+N = nrow(housing.training)
+
+Stackhs = inla.stack(
+  data=list(y=housing.training$median_house_value.log), # specify the response variable
+  A=list(1, 1, loc.A), # Vector of Multiplication factors for  fixed effects      
+  effects=list(
+    Intercept=rep(1, N), # specify the manual intercept!
+    X=X,  # attach the model matrix
+   # insert vectors of any random effects
+    w=loc.w)) # attach the w
+
+# cali.spde = inla(y ~ 0 + Intercept + longitude.std + latitude.std +
+#                    housing_median_age.std + I(housing_median_age.std ^ 2) +
+#                    I(housing_median_age.std ^ 3) + I(housing_median_age.std ^ 4) +
+#                    median_income.stdlog + I(median_income.stdlog ^ 2) +
+#                    I(median_income.stdlog ^ 3) + I(median_income.stdlog ^ 4) +
+#                    housing_median_age.std : median_income.stdlog +
+#                   ocean_proximity + average_bed_rooms.std +
+#                    f(w, model=loc.spde),
+#                  family="gaussian", data=inla.stack.data(Stackhs),
+#                  control.compute=list(cpo=T, dic=T, waic=T),
+#                  control.predictor = list(A=inla.stack.A(Stackhs)),
+#                  control.inla=list(tolerance=1e-10))
+
+cali.spde = inla(y ~ 0 + Intercept + longitude.std + latitude.std +
+                   housing_median_age.std + housing_median_age.std2 +
+                   housing_median_age.std3 + housing_median_age.std4 +
+                   median_income.stdlog + median_income.stdlog2 +
+                   median_income.stdlog3 + median_income.stdlog4 +
+                   housing_median_age.std_median_income.stdlog +
+                   op_near_bay + op_inland + op_near_ocean + op_island +
+                   average_bed_rooms.std + f(w, model=loc.spde),
+                 family="gaussian", data=inla.stack.data(Stackhs),
+                 control.compute=list(cpo=T, dic=T, waic=T),
+                 control.predictor = list(A=inla.stack.A(Stackhs)),
+                 control.inla=list(tolerance=1e-10))
+summary(cali.spde)
+```
+
+```{r}
+require(ggregplot)
+require(ggplot2)
+require(tidyverse)
+require(RColorBrewer)
+
+ggField(cali.spde, hsmesh, Groups=1, Res=600) + scale_fill_brewer(palette = "Blues")
+```
+
+```{r}
+cali.spde$dic$dic
+-sum(log(cali.spde$cpo$cpo))
+cali.spde$waic$waic
+```
+
+```{r}
+# separate variable component for INLA
+
+# cmp = median_house_value.log ~ floc(geometry, model=loc.spde) + 
+#   longitude.std + latitude.std +
+#   housing_median_age.std_median_income.stdlog +
+#   housing_median_age.std + housing_median_age.std2 +
+#   housing_median_age.std3 + housing_median_age.std4 +
+#   median_income.stdlog + median_income.stdlog2 +
+#   median_income.stdlog3 + median_income.stdlog4 +
+#   op_near_bay + op_1H_ocean + op_inland + op_near_ocean + op_island +
+#   average_bed_rooms.std + Intercept(1)
+```
+
+```{r}
+# loc.spde = inla.spde2.pcmatern(mesh=hsmesh, prior.range=c(100, 0.5), prior.sigma=c(200, 0.1))
+loc.spde = inla.spde2.pcmatern(mesh=hsmesh,
+           prior.range=c(1, 0.1),
+           prior.sigma=c(200, 0.1))
+#   cmp = median_house_value.log ~ floc(geometry, model=loc.spde) +
+#     longitude.std + latitude.std +
+#     fprod(housing_median_age.std * median_income.stdlog) +
+#     housing_median_age.std + fhma2(housing_median_age.std ^ 2) +
+#     fhma3(housing_median_age.std ^ 3) + fhma4(housing_median_age.std ^ 4) +
+#     median_income.stdlog + fmi2(median_income.stdlog ^ 2) +
+#     fmi3(median_income.stdlog ^ 3) + fmi4(median_income.stdlog ^ 4) +
+#     op_near_bay + op_inland + op_near_ocean + op_island +
+#     average_bed_rooms.std + Intercept(1)
+  
+  cmp = median_house_value.log ~ floc(geometry, model=loc.spde) +
+    longitude.std + latitude.std +
+    housing_median_age.std_median_income.stdlog +
+    housing_median_age.std + housing_median_age.std2 +
+    housing_median_age.std3 + housing_median_age.std4 +
+    median_income.stdlog + median_income.stdlog2 +
+    median_income.stdlog3 + median_income.stdlog4 +
+    op_near_bay + op_inland + op_near_ocean + op_island +
+    average_bed_rooms.std + Intercept(1)
+
+  
+  cali.spde = bru(components=cmp, data=housing.training, family="gaussian",
+                samplers=hsdomain, domain = list(coordinates=hsmesh),
+                options=list(control.inla=list(tolerance=1e-10), 
+                             # control.fixed=prior.beta,
+                             # control.family=list(hyper=prec.prior),
+                             control.compute=list(cpo=T, dic=T, waic=T)))
+  
+  # summary
+  print(summary(cali.spde))
+  
+  # predict
+  pix = fm_pixels(hsmesh, dims=c(200, 200))
+  pred = predict(cali.spde.bru, newdata=pix, formula=~ floc)
+
+  plot.post.re = ggplot() +
+    gg(pred, geom="tile") +
+    ggtitle("Posterior mean of spatial random effect") +
+    scale_fill_gradientn(colours=brewer.pal(11, "Blues"), limits=range(pred$mean))
+  print(plot.post.re)
+```

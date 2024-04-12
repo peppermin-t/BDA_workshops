@@ -1,0 +1,769 @@
+---
+editor_options:
+  markdown:
+    wrap: 72
+output: pdf_document
+---
+
+**University of Edinburgh**\
+**School of Mathematics**\
+**Bayesian Data Analysis, 2023/2024, Semester 2**\
+
+**Solutions for Workshop 4: Bayesian Generalised Linear Models (GLMs)
+and Hierarchical Models (HMs)**
+
+```{r}
+library(rjags)
+```
+
+# 1. **Modelling fatal airline accidents from 1976 through 2001.**
+
+**This exercise has been taken largely from a shortcourse at the
+University of Copenhagen which occurred in January 2013 and notes from
+Gurrin, Carstensen, Hojsgaard, and Ekstrom. The dataset `airline.RData`
+is available on Learn.**
+
+**The fields are:**\
+**- Year1975 (number of years after 1975),**
+
+**- Year,**
+
+**- Fatal (number of fatal airline accidents),**
+
+**- Miles (total passenger miles, in** $10^{11}$ **miles, e.g.,**
+$3.863 = 3.683*10^{11} \text{miles} = 368.3$ **Billion miles),**
+
+**- Rate (fatalities per** $10^{11}$ **passenger miles).**
+
+**You will be fitting 3 separate Poisson models to Fatal.**
+
+**1.1. Conduct some exploratory data analysis:**
+
+\- **Plot fatalities against year. Which year had the most fatalities?**
+
+\- **Plot miles flown against year. What do you see?**
+
+\- **Now plot the rate against year. What do you think about how
+dangerous flying is?**
+
+```{r}
+load("airline.RData")
+airlines$fatal
+```
+
+```{r}
+plot(airlines$year, airlines$fatal)
+plot(airlines$year, airlines$miles)
+airlines$year[which(airlines$fatal == max(airlines$fatal))]
+```
+
+[**Constant Expected Fatality Model.**]{.underline} **Assume that the
+number of fatalities each year comes from a single Poisson distribution
+with unknown mean parameter.**
+
+**1.2. Carry out a frequentist analysis using the `glm` function, the
+Poisson family and the default log link function (Hint: the formula**
+$y\sim 1$ **fits a model with constant mean). Report the mle in the
+original, non-transformed scale.**
+
+```{r}
+fatal.glm = glm(fatal ~ 1, data=airlines, family=poisson)
+summary(fatal.glm)
+
+exp(coef(fatal.glm))
+```
+
+**1.3. Use INLA to carry out a Bayesian analysis of the constant
+mortality model with identity link function using a Normal(a,b) prior
+for** $\log(\mu)$ **with parameters a=3 and b=10.**
+
+In INLA, only precisions are modelled in log-scale internally!
+coefficients are not.
+
+constant (only intercept), identity link, equivalent to direct
+modelling. But in INLA, since only log link is available for poisson
+family, we can model log link, and transform the intercept with \`exp\`
+to the expected value.
+
+equivalently,$$ \log\mu[i]=\log\mu[i],\quad\mathrm{fatal}[i]\sim\mathrm{pois}(\mu[i]). $$
+
+**What is the posterior mean for** $\mu$**? Interpret the result. Obtain
+the 95% symmetric Credible Interval for**$\mu$.
+
+```{r}
+require(INLA)
+
+a = 3
+b = 10
+
+prior.beta = list(mean.intercept=a, prec.intercept=1 / b,
+                  mean=0, prec=1)
+
+air.inla = inla(fatal ~ 1, data=airlines, family="poisson",
+                control.fixed=prior.beta,
+                control.compute=list(cpo=TRUE, dic=TRUE))
+summary(air.inla)
+```
+
+```{r}
+mu.post = inla.tmarginal(exp, fatal.inla$marginals.fixed$`(Intercept)`)
+inla.zmarginal(mu.post)
+```
+
+**1.4. Consider a Poisson model of the form**
+$$\mu[i] = \lambda \cdot  \mathrm{miles}[i], \quad \mathrm{fatal}[i]\sim \mathrm{pois}(\mu[i]).$$
+
+Note: equivalently, $\log\lambda$ is treated as the intercept in this
+equation (also prior is given). We just need to compute with exp to get
+the desired $\lambda$.
+
+$$
+\log\mu[i]=\log\lambda+\log\mathrm{miles}[i],\quad \mathrm{fatal}[i]\sim\mathrm{pois}(\mu[i]).
+$$
+
+**Here miles is the total number of miles of flights per year divided by
+10\^11 (ranging from 5 to 20 during the period 1976-2001.**
+
+**Thus** $\lambda$ **is a new parameter. Assume that** $\log(\lambda)$
+**has a Normal(0,1) prior.**
+
+**Implement this model in INLA. What is the posterior mean for**
+$\lambda$**? Interpret the result. Predict the number of fatal accidents
+for 2025 assuming there will be** $20\cdot 10^{11}$ **passenger miles
+flown. State the 95% credible interval for number of accidents in
+2025.**
+
+```{r}
+prior.beta = list(mean.intercept=0, prec.intercept=1)
+
+air.inla2 = inla(fatal ~ 1, data=airlines, family="poisson", offset=log(miles),
+                 control.fixed=prior.beta,
+                 control.compute=list(cpo=TRUE, dic=TRUE))  # offsets do not have coef
+summary(air.inla2)
+
+lambda.post = inla.tmarginal(exp, air.inla2$marginals.fixed$`(Intercept)`)
+inla.zmarginal(lambda.post)
+```
+
+```{r}
+airlines.new = data.frame(miles=20, fatal=NA)
+airlines.pred = rbind(data.frame(miles=airlines$miles, fatal=airlines$fatal), airlines.new)
+
+air.inla2.pred = inla(fatal ~ 1, data=airlines.pred, family="poisson",
+                      offset=log(miles),
+                      control.fixed=prior.beta,
+                      control.predictor=list(compute=TRUE, link=1),
+                      control.compute=list(config=TRUE))
+# prediction still need sampling, the prediction from system (below) is just the mean's prediction. The real prediction is nested in the poisson distribution which still need to be sampled (it's like the one from whether add sigma to normal senario)
+
+# from system, can only predict the mean (mu)
+# air.inla2.pred$summary.fitted.values[nrow(airlines.pred), ][, c("0.025quant", "0.975quant")]
+
+# still need sampling to get pois-considered prediction
+nbsamp = 20000
+air.samples = inla.posterior.sample(nbsamp, air.inla2.pred,
+                                    selection=list(Predictor=27))
+mu.samples = exp(sapply(air.samples, function(x) x$latent[, 1]))
+air.inla2.pred = rpois(length(mu.samples), mu.samples)
+quantile(air.inla2.pred, c(0.025, 0.975))
+```
+
+**1.5.** [**Rate as a Function of Time Model**]{.underline}**. What if
+you modeled the mean parameter** $\mu$ **as a linear function of time,
+i.e., for year t:** $\mu(t) = \beta_0 + \beta_1 t$**.** $\beta_1$ **is
+presumably a negative number as fatal accidents are decreasing with
+time. What could be a problem?**
+
+**To avoid this potential problem but allow for a time effect on**
+$\mu$**, we will now model the rate parameter** $\lambda$**, as an
+exponentiated linear function of (centred) time:**
+$$\lambda(t)=\exp{(\beta_0 + \beta_1 (t-\bar{t}))}$$
+
+**The resulting Poisson parameter for year t:**
+$$\mu(t)=\lambda(t)*\text{miles}(t)=\exp{(\beta_0 + \beta_1 (t-\bar{t}))}*\text{miles}(t)$$
+
+**With a log link function for** $\mu(t)$**, the resulting
+transformation:**
+$$\log(\mu(t))=\beta_0 + \beta_1 (t-\bar{t})+\log(\text{miles}(t))$$
+
+**which is not "entirely" a linear function of** $t$ **due to the**
+$\log(\text{miles}(t))$ **term. However, the log transformed rate
+parameter is linear in time:**
+$\log(\lambda(t)) = \beta_0+\beta_1(t-\bar{t})$**. When the link
+function of the expected value is the sum of a linear combination of
+covariates and a known constant, in this case**
+$\log(\text{miles}(t))$**, that constant is called an *offset*.**
+
+**Implement this model in INLA. Explain the choices for the prior
+distributions** $\beta_0$ **and** $\beta_1$**. Check the sensitivity of
+the posterior distribution with respect to the prior. Compute the
+posterior means of** $\exp(\beta_0)$ **and** $\exp(\beta_1)$**, and
+interpret the results.**
+
+```{r}
+prior.beta = list(mean.intercept=0, prec.intercept=0.5,
+                  mean=0, prec=0.5)
+airlines$year.ctr = airlines$year - mean(airlines$year)
+air.inla3 = inla(fatal ~ year.ctr, data=airlines, family="poisson",
+                 offset=log(miles),
+                 control.fixed=prior.beta,
+                 control.compute=list(cpo=TRUE, dic=TRUE))
+summary(air.inla3)
+
+fixed.marginal.exp = inla.tmarginal(exp, air.inla3$marginals.fixed$`(Intercept)`)
+inla.zmarginal(fixed.marginal.exp)
+
+fixed.marginal.exp = inla.tmarginal(exp, air.inla3$marginals.fixed$year.ctr)
+inla.zmarginal(fixed.marginal.exp)
+```
+
+**1.6. Compare the 3 INLA models in 1.3, 1.4 and 1.5 in terms of log
+marginal likelihood, DIC and NLSCPO. Discuss which model fits best on
+this dataset.**
+
+```{r}
+air.inla$mlik[1]
+air.inla2$mlik[1]
+air.inla3$mlik[1]
+
+air.inla$dic$dic
+air.inla2$dic$dic
+air.inla3$dic$dic
+
+-sum(log(air.inla$cpo$cpo))
+-sum(log(air.inla2$cpo$cpo))
+-sum(log(air.inla3$cpo$cpo))
+```
+
+**1.7. Carry out the analysis of 1.5. using JAGS. Verify mixing using
+Gelman-Rubin diagnostics, and effective sample size calculations.**
+
+# 2. **Binary data: Low Birth Weights.**
+
+**These birth weight data for 189 infants born in Massachusetts, USA,
+are from Hosmer and Lemeshow (2000; Applied Logistic Regression). The
+dataset `lowbwt.RData` is available on Learn but it will be
+automatically uploaded by the code below. The primary response variable,
+`LowBwt`, is an indicator for whether or not infant's birth weight was
+less than 2500g (LowBwt = 1 if `Bwt`\<2500g, 0 otherwise). There are
+several potential covariates, including:**
+
+-   **`Mother.age`**
+-   **`Mother.wt`**
+-   **`Race`(1,2,3 for white, black, and other)**
+-   **`Smoke`(1 for yes, 0 for no)**
+
+```{r}
+load("lowbwt.RData")
+#The loaded data is contained in the bwt dataframe
+head(bwt)
+```
+
+**2.1. Perform some exploratory data analysis and comment your
+results.**
+
+```{r}
+par(mfrow=c(2, 3))
+scatter.smooth(bwt$Bwt ~ bwt$Mother.age)
+scatter.smooth(bwt$Bwt ~ bwt$Mother.wt)
+
+boxplot(split(bwt$Mother.age, bwt$LowBwt))
+boxplot(split(bwt$Mother.wt, bwt$LowBwt))
+boxplot(split(bwt$Bwt, bwt$Smoke))
+boxplot(split(bwt$Bwt, bwt$Race))
+```
+
+**2.2. Use `glm` to fit the following 3 logistic regression models,
+where** $p$ **denotes the probability of low birthweight. The continuous
+covariates are being standardized, not just centred.**
+
+-   **(A)**
+    $\log(p/(1-p))= \beta_0 + \beta_1 \dfrac{\text{Mother.age}-\overline{\text{Mother.age}}}{sd_\text{Mother.age}}$
+-   **(B)**
+    $\log(p/(1-p))= \beta_0 + \beta_1 \dfrac{\text{Mother.wt}-\overline{\text{Mother.wt}}}{sd_\text{Mother.wt}}$
+-   **(C)** $\log(p/(1-p))= \beta_0 + \beta_1 I_\text{Smoke}$
+
+**Here's example R code for the model (A):**
+
+```{r}
+bwt$age.std <- scale(bwt$Mother.age)[, 1]
+m.age <- glm(LowBwt ~ age.std, family=binomial(link="logit"), data=bwt)
+coef(m.age)
+```
+
+Note: when the data are Bernoulli (n=1), then a vector of 1's and 0's
+can be used as the response variable in the `glm` function. Interpret
+the slope coefficients for the 3 models. E.g., as mother's age increases
+of one standard deviation what happens, on average, to the odds of low
+birthweight infant?
+
+```{r}
+bwt$wt.std = scale(bwt$Mother.wt)[, 1]
+m.weight = glm(LowBwt ~ wt.std, family=binomial(link="logit"), data=bwt)
+coef(m.weight)
+
+m.smoke = glm(LowBwt ~ Smoke, family=binomial(link="logit"), data=bwt)
+coef(m.smoke)
+```
+
+**2.3. Implement the Bayesian models of (A), (B) and (C) in INLA. Choose
+your own prior distributions for the model parameters. Check sensitivity
+with respect to the priors. Print out the model summaries, and interpret
+the results.**
+
+**Using the inverse logit function** $\mathrm{ilogit}$, **compute the
+posterior means of** $\mathrm{ilogit}(\beta_0)$ **and**
+$\mathrm{ilogit}(\beta_0+\beta_1)$**, and interpret the results.**
+**Here** $\beta_0$ **and** $\beta_1$ **are the regression coefficients
+inside the Bayesian GLM models.**
+
+**Hint: in INLA, binary data with logistic link function can be handled
+by the call**
+
+`inla(formula,family="binomial", control.family=list(link="logit"),data=data,…)`
+
+```{r}
+compute.prior.beta.std = function(dt) {
+  b1.prior.prec = (diff(range(dt)) / 10) ** 2
+  b0.prior.prec = b1.prior.prec * (1 / mean(range(dt))) ** 2
+  list(mean.intercept=0, prec.intercept=b0.prior.prec, mean=0, prec=b1.prior.prec)
+}  # equivalent to compute on stardized data or original data (based on the equation in Lecture 5 P58)
+
+ilogit = function(x) {
+  1 / (1 + exp(-x))
+}
+
+bwt.inla1 = inla(LowBwt ~ age.std, data=bwt, family="binomial",
+                 control.fixed=compute.prior.beta(age.std),
+                 control.family=list(link="logit"),
+                 control.compute=list(cpo=T, dic=T))
+summary(bwt.inla1)
+p1.post = inla.tmarginal(ilogit, bwt.inla1$marginals.fixed$`(Intercept)`)
+inla.zmarginal(p1.post)
+
+bwt.test = rbind(data.frame(age.std=bwt$age.std, LowBwt=bwt$LowBwt),
+                 data.frame(age.std=1, LowBwt=NA))
+
+bwt.inla1.pred = inla(LowBwt ~ age.std, data=bwt.test, family="binomial",
+                      control.fixed=compute.prior.beta(age.std),
+                      control.family=list(link="logit"),
+                      control.predictor=list(compute=T, link=1),
+                      control.compute=list(cpo=T, dic=T))
+
+bwt.inla1.pred$summary.fitted.values[nrow(bwt.test), "mean"]
+
+bwt.inla2 = inla(LowBwt ~ wt.std, data=bwt, family="binomial",
+                 control.fixed=compute.prior.beta(wt.std),
+                 control.family=list(link="logit"),
+                 control.compute=list(cpo=T, dic=T))
+summary(bwt.inla2)
+
+bwt.inla3 = inla(LowBwt ~ Smoke, data=bwt, family="binomial",
+                 control.fixed=compute.prior.beta(Smoke),
+                 control.family=list(link="logit"),
+                 control.compute=list(cpo=T, dic=T))
+summary(bwt.inla3)
+```
+
+**2.4. Implement a logistic regression model, called model (D) in INLA,
+based on 4 covariates Mother.age, Mother.wt, Race, and Smoke (Race and
+Smoke are categorical covariates). Choose your own prior distributions
+for the model parameters. Check sensitivity with respect to the priors.
+Print out the model summaries, and interpret the results.**
+
+```{r}
+bwt$Race.fct = as.factor(bwt$Race)
+bwt$Smoke.fct = as.factor(bwt$Smoke)
+
+bwt.inla4 = inla(LowBwt ~ age.std + wt.std + Race + Smoke, data=bwt, family="binomial",
+                 control.fixed=compute.prior.beta.std(age.std),
+                 control.compute=list(cpo=T, dic=T)
+                 )
+summary(bwt.inla4)
+```
+
+**2.5. Compare the 4 INLA models in terms of log marginal likelihood,
+DIC, and NLSCPO scores.**
+
+```{r}
+bwt.inla1$mlik[1]
+bwt.inla2$mlik[1]
+bwt.inla3$mlik[1]
+bwt.inla4$mlik[1]
+
+bwt.inla1$dic$dic
+bwt.inla2$dic$dic
+bwt.inla3$dic$dic
+bwt.inla4$dic$dic
+
+-sum(log(bwt.inla1$cpo$cpo))
+-sum(log(bwt.inla2$cpo$cpo))
+-sum(log(bwt.inla3$cpo$cpo))
+-sum(log(bwt.inla4$cpo$cpo))
+```
+
+**2.6. Carry out a Bayesian analysis for the model of 2.4 using JAGS.
+Check the convergence using the Gelman-Rubin diagnostics and compute
+effective sample sizes of all parameters.**
+
+```{r}
+
+```
+
+# 3. **Modelling yields of a dye from different input batches.**
+
+**In chemical reactions, the yield measures the amount of reactants
+produced in a reaction (as usually not 100% of the reactants are
+converted to products following the stoichiometry of the reaction). This
+dataset, `dyestuff.csv`, has 30 records with two fields, `yield` and
+`batch`. Yield, the outcome variable, is grams of a "dyestuff" called
+Naphthalene Black 12B. The data are the result of a study to see how
+variation between batches of an intermediate product for the synthesis
+of the dyestuff, called H-acid, contributed to variation in the yield.
+Six batches, labeled A, B, C, D, E, and F were randomly sampled at the
+works manufacture. From each batch five preparations of the dyestuff
+were made at the laboratory, and then the yield was measured.**
+
+```{r}
+dye.data <- read.csv("Dyestuff.csv",header=TRUE)
+```
+
+**3.1. EDA: Produce side-by-side boxplots of the yields for each of the
+6 batches (e.g. by using the functions `boxplot` and `split`). What
+patterns do you observe? What does the variation within each batch look
+like?**
+
+```{r}
+boxplot(split(dye.data$Yield, dye.data$Batch))
+
+```
+
+As we can see from the boxplots, there are significant differences in
+means and variations in these 5 batches. Batch E has the highest mean
+yield, and the lowest variation.
+
+**3.2. Fit the following non-hierarchical (Independent) model using
+INLA:**
+
+$$\text{yield}_{ji}\sim N(\theta_j,\sigma^2)\quad j=A,\dots,F$$
+
+**This is simply a regression analysis with 5 indicator variables
+representing 5 intercepts. First, you should recode your index j to a
+numeric scale by using:**
+
+```{r}
+dye.data$Batch <- as.numeric(as.factor(dye.data$Batch))
+```
+
+**Use the following normal priors for the** $\theta$'s and Gamma prior
+for $\tau=1/\sigma^2$ :
+
+$$\theta_j \overset{iid}{\sim}  N(\mu_\theta = 1500, \sigma^2_\theta = 1000^2) \quad j = A, B, \dots, F$$
+
+$$\tau\sim \text{Gamma}(0.1,0.1) $$
+
+```{r}
+prec.prior = list(prec=list(prior="loggamma", param=c(0.1, 0.1)))
+prec.prior.re.ind = list(prec=list(initial=log(1e-6), fixed=TRUE))
+dye.data$Yield.offset = dye.data$Yield-1500;
+
+dye.ind = inla(Yield.offset ~ 0 + f(Batch, model="iid", hyper=prec.prior.re.ind),
+                 data=dye.data, family="gaussian",
+                 control.family=list(hyper=prec.prior),
+                 control.compute=list(cpo=TRUE, dic=TRUE))
+summary(dye.ind)
+```
+
+**3.3. Fit the following hierarchical model.**
+
+$$\text{yield}_{ji}\sim N(\theta_j,\sigma^2)\quad j=A,\dots,F$$
+
+$$\theta_j \sim N(\mu_\theta , \sigma^2_\theta) \quad j = A, \dots, F$$
+
+**Use these prior distributions for the hyper-parameters
+(**$\tau=1/\sigma^2, \tau_{\theta}=1/\sigma_{\theta}^2$) :
+
+$$\tau\sim \text{Gamma}(0.1,0.1) $$
+
+$$\tau_{\theta}\sim \text{Gamma}(0.1,0.1) $$
+
+$$ \mu_\theta \sim N(2000,1000^2)$$
+
+-   **Choose 3 sets of initial values by randomly sampling from the
+    prior distributions. Use a burn-in of 1000 and an inference run of
+    10 000.**
+
+-   **Calculate the Intraclass Correlation Coefficient (ICC)**
+    $\sigma^{2}_\theta/(\sigma^{2}_\theta +\sigma^{2})$. **What does the
+    posterior for the ICC look like? What does its value mean?**
+
+```{r}
+prec.prior = list(prec=list(prior="loggamma", param=c(0.1, 0.1)))
+prec.prior.re.hie = list(prec=list(prior="loggamma", param=c(0.1, 0.1)))
+prior.beta = list(mean.intercept=500, prec.intercept=1e-6,
+                  mean=0, prec=1e-6)
+# note that in inla hyerachical model, the mu for random effect is treated as intercept, thus "1 + f(...", the prior for mu is exactly the prior for intercept (in prior.beta)
+
+dye.hie = inla(Yield.offset ~ 1 + f(Batch, model="iid", hyper=prec.prior.re.hie),
+                data=dye.data, family="gaussian",
+                control.family=list(hyper=prec.prior),
+                control.fixed=prior.beta,
+                control.compute=list(cpo=TRUE, dic=TRUE))
+summary(dye.hie)
+```
+
+```{r}
+nbsamp = 20000
+
+hyperpar.samps = inla.hyperpar.sample(nbsamp, dye.hie)
+sigma2.gauss.samps = 1 / hyperpar.samps[, 1]
+sigma2.re.samps = 1 / hyperpar.samps[, 2]
+ICC.samps = sigma2.re.samps / (sigma2.re.samps + sigma2.gauss.samps)
+plot(density(ICC.samps))
+summary(ICC.samps)
+```
+
+**3.4. Compute the probability for each batch of having an expected
+yield greater than 1500gr according to the hierarchical model and
+compare the results with the ones for the Independent model.**
+
+```{r}
+dye.test = data.frame(Yield.offset=dye.data$Yield.offset, Batch=dye.data$Batch)
+dye.test = rbind(data.frame(Yield.offset=rep(NA, 6), Batch=1:6), dye.test)
+
+nbsamp = 200000
+
+dye.ind.pred = inla(Yield.offset ~ 0 +
+                      f(Batch, model="iid", hyper=prec.prior.re.ind),
+                    data=dye.test, family="gaussian",
+                    control.family=list(hyper=prec.prior),
+                    control.predictor=list(compute=TRUE, link=1),
+                    control.compute=list(config=TRUE, cpo=TRUE, dic=TRUE))
+
+post.samp.ind = inla.posterior.sample(nbsamp, dye.ind.pred, selection=list(Predictor=1:6))
+
+sigma.samp.ind = 1 / sqrt(unlist(lapply(post.samp.ind, function(x) x$hyperpar[1])))
+
+pred.samp.ind = unlist(lapply(post.samp.ind, function(x) x$latent[1:6, ])) + rnorm(nbsamp * 6, 0, rep(sigma.samp.ind, 6))
+
+pred.samp.ind.mtx = matrix(pred.samp.ind, ncol=6, byrow=TRUE)
+colMeans(pred.samp.ind.mtx > 0)
+```
+
+```{r}
+dye.hie.pred = inla(Yield.offset ~ 1 + 
+                      f(Batch, model="iid", hyper=prec.prior.re.hie),
+                    data=dye.test, family="gaussian",
+                    control.family=list(hyper=prec.prior),
+                    control.fixed=prior.beta,
+                    control.predictor=list(compute=TRUE, link=1),
+                    control.compute=list(config=TRUE, cpo=TRUE, dic=TRUE))
+
+post.samp.hie = inla.posterior.sample(nbsamp, dye.hie.pred, selection=list(Predictor=1:6))
+
+sigma.samp.hie = 1 / sqrt(unlist(lapply(post.samp.hie, function(x) x$hyperpar[1])))
+
+pred.samp.hie = unlist(lapply(post.samp.hie, function(x) x$latent[1:6, ])) + rnorm(nbsamp * 6, 0, rep(sigma.samp.hie, 6))
+
+pred.samp.hie.mtx = matrix(pred.samp.hie, ncol=6, byrow=TRUE)
+colMeans(pred.samp.hie.mtx > 0)
+```
+
+**3.5. Compare the two models in terms of log marginal likelihood, DIC
+and NLSCPO.**
+
+```{r}
+dye.ind$mlik[1]
+dye.hie$mlik[1]
+
+dye.ind$dic$dic
+dye.hie$dic$dic
+
+-sum(log(dye.ind$cpo$cpo))
+-sum(log(dye.hie$cpo$cpo))
+```
+
+**3.6. Implement the hierarchical model in JAGS, and compare the results
+with the previous results obtained using INLA.**
+
+```{r}
+
+```
+
+# 4. **Modelling the probability of genital warts and Pelvic inflammatory disease (PID).**
+
+**Genital warts and Pelvic inflammatory disease (PID) are conditions
+that commonly occur among adult women. These conditions are typically
+diagnosed after referral to and consultation with a sexual health
+physician. A question of relevance to health service providers is the
+extent to which there is clinically relevant variation between
+physicians in the frequency with which PID and genital warts are
+diagnosed. The data set `wartpid.csv` is a 23 by 4 matrix that consists
+of records for 23 physicians (`doctor`), identified by a number only,
+all working at the same Sexual Health Centre, the number of patients
+they saw (`consults`), the number of cases of PID diagnosed (`PID`), and
+the number of cases of genital warts (`warts`) diagnosed. Load the data
+into R.**
+
+```{r}
+wartpid.data <- read.csv("wartpid.csv",header=TRUE)
+head(wartpid.data)
+```
+
+**4.1. Exploratory Data Analysis: Calculate the fraction of wart and
+fraction of PID diagnoses per patient (consult) for each physician and
+add them as new variables of the dataframe.**
+
+**Produce the following 4 plots and put them on a single page (use the
+`par(mfrow=c(2,2))` command: - Barplot of warts fraction by physician
+(use the `barplot` function with an appropriate value for the
+`names.arg` argument) - Barplot of PID fraction by physician. - Barplot
+of consultations by physician. - Scatterplot with smooth fit
+(`scatter.smooth()`) of wart fraction (Y axis) against PID (X axis)
+fraction.**
+
+```{r}
+wartpid.data$PID.frac = wartpid.data$PID / wartpid.data$consults
+wartpid.data$warts.frac = wartpid.data$warts / wartpid.data$consults
+
+par(mfrow=c(2, 2))
+barplot(wartpid.data$warts.frac, names.arg=wartpid.data$doctor)
+barplot(wartpid.data$PID.frac, names.arg=wartpid.data$doctor)
+barplot(wartpid.data$consults, names.arg=wartpid.data$doctor)
+scatter.smooth(wartpid.data$PID.frac, wartpid.data$warts.frac)
+```
+
+**4.2.** [**Identical logistic model.**]{.underline} **Fit a simple
+Bayesian model for the number of warts diagnoses where the probability
+of diagnose is the same for all physicians. You could set a Beta(0.5;
+0.5) prior for the probability** $p$**, but, in this case we are going
+to take another approach and set a** $N(0; 20^2)$ **prior for the**
+$\text{logit}(p) = \beta_0$
+
+**Compute the predictive distribution for replicates of the
+observations. You can do that by duplicating the line where the
+likelihood is defined with a different name for the response variable
+(e.g., `warts.pred[i] ~ dbinom(p, consults[i])`).**
+
+```{r}
+prior.beta = list(mean.intercept=0, prec.intercept=0.0025,
+                  mean=0, prec=0.0025)
+wp.inla = inla(warts ~ 1, data=wartpid.data, family="binomial", Ntrials=consults,
+               control.fixed=prior.beta, control.compute=list(config=T, cpo=T, dic=T))
+# Ntrials: corresponding to the total trial times for each data, (if only one trial each time with 0, 1 returned, default (1, ..., 1) could be used)
+summary(wp.inla)
+```
+
+```{r}
+# "Compute posterior", we should sample. statistics are not enough
+nbsamp = 5000
+post.samps = inla.posterior.sample(nbsamp, wp.inla)
+b0.post.samps = unlist(lapply(post.samps, function(x) x$latent["(Intercept):1", ]))
+ilogit = function(x) {
+  1 / (1 + exp(-x))
+}
+p.post.samps = ilogit(b0.post.samps)
+summary(p.post.samps)
+```
+
+**4.3. Plot the posterior density
+(`plot(density(...), xlim=c(0.01, 0.08))`) of the estimation for** $p$
+**and then add points (using the `points` function) for all the observed
+proportions for the physicians. What do you observe? Do you think all
+the physicians diagnose the same proportion of warts? Do you think the
+identical model is good for this data?**
+
+```{r}
+plot(density(p.post.samps))
+points(wartpid.data$warts.frac, rep(0,23), col="firebrick2")
+```
+
+There is clearly a big difference in the diagnosis rate between
+different physicians. Due to this, the identical model seems to be a
+poor fit for this data.
+
+**4.4. Another way of looking at the same problem. Plot the predictive
+distributions for replicates of the observations with a line indicating
+the observed value (see code below, running this requires that you
+create the dataframe warts.ident.output in 2.3). What do you observe? Do
+you think the identical model is good for this data? Compute the
+predictive probability for physician 1 of observing less or equal
+diagnoses in the same amount of consults (considering that the
+probability of diagnose stays the same).**
+
+```{r}
+
+pred.post.samps = unlist(lapply(post.samps, function(x) x$latent[1:23, ]))
+p.post.samps = ilogit(pred.post.samps)
+res.post.samps = rbinom(nrow(wartpid.data) * nbsamp, rep(wartpid.data$consults, nbsamp), p.post.samps)
+res.post.samps.mtx = matrix(res.post.samps, nrow=23)
+
+par(mfrow=c(6, 4), mai=c(0.3, 0.3, 0.3, 0.3))
+par(mar=c(0.5, 0.5, 0.5, 0.5))
+for (i in 1:nrow(wartpid.data)) {
+  plot(density(res.post.samps.mtx[i, ]))
+  abline(v=wartpid.data$warts[i], col="firebrick2", lwd=2)
+}
+```
+
+**4.5.** [**Hierarchical logistic model.**]{.underline} **Let us improve
+the previous model by including a random effect of the physician on the
+probability of diagnosing warts. Set a prior distribution** $N(0; 10^2)$
+**for the mean of** $\beta_0$ **and a** Gamma(0.1,0.1) **for its
+precision parameter (**$\tau=1/\sigma^2$)**.**
+
+**Once again, do prediction for the replicates of the data. We are going
+to do predictions considering the particular** $p_i$ **estimated for
+each physician (you only have to add the indexing `p[i]` to the code
+line you introduced on the identical model). Plot the predictive
+distributions for replicates of the observations with a line indicating
+the observed value (see code below, replace warts.hier.res.B with the
+name of the results from coda.samples). What do you observe? Do you
+think the hierarchical model provides a better fit for this data than
+the identical model? Compute the predictive probability for physician 1
+of observing less or equal diagnoses in the same amount of consults and
+compare it with the one of the Identical model. Can you explain the
+difference?**
+
+```{r}
+prior.beta = list(mean.intercept=0, prec.intercept=.01,
+                  mean=0, prec=.01)
+prec.prior.re = list(prec=list(prior="loggamma", param=c(0.1, 0.1)))
+
+wp.inla2 = inla(warts ~ 1 + f(doctor, model="iid", hyper=prec.prior.re),
+                data=wartpid.data, family="binomial", Ntrials=wartpid.data$consults,
+                control.fixed=prior.beta,
+                control.compute=list(config=T, cpo=T, dic=T))
+summary(wp.inla2)
+```
+
+```{r}
+# "Compute posterior", we should sample. statistics are not enough
+post.samps.hie = inla.posterior.sample(nbsamp, wp.inla2)
+
+pred.post.samps.hie = unlist(lapply(post.samps.hie, function(x) x$latent[1:23, ]))
+p.post.samps.hie = ilogit(pred.post.samps.hie)
+res.post.samps.hie = rbinom(nrow(wartpid.data) * nbsamp, rep(wartpid.data$consults, nbsamp), p.post.samps.hie)
+res.post.samps.mtx.hie = matrix(res.post.samps.hie, nrow=23)
+
+par(mfrow=c(6, 4), mai=c(0.3, 0.3, 0.3, 0.3))
+par(mar=c(0.5, 0.5, 0.5, 0.5))
+for (i in 1:nrow(wartpid.data)) {
+  plot(density(res.post.samps.mtx.hie[i, ]))
+  abline(v=wartpid.data$warts[i], col="firebrick2", lwd=2)
+}
+```
+
+**4.6. Compare the two model fits using Bayesian model comparison
+criteria (log marginal likelihood, DIC and NLSCPO).**
+
+```{r}
+wp.inla$mlik[1]
+wp.inla2$mlik[1]
+
+wp.inla$dic$dic
+wp.inla2$dic$dic
+
+-sum(log(wp.inla$cpo$cpo))
+-sum(log(wp.inla2$cpo$cpo))
+```

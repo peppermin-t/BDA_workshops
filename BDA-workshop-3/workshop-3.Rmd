@@ -1,0 +1,362 @@
+---
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+**University of Edinburgh**
+
+**School of Mathematics**
+
+**Bayesian Data Analysis, 2023/2024, Semester 2**
+
+**Workshop 3: Introduction to Stan**
+
+**Note**: Before starting this practical, you are advised to spend some
+time looking at the Stan examples we have discussed during Lecture 4
+(code is available on Learn). If you already looked at these, then feel
+free to go directly to question 1. The code below loads Stan.
+
+```{r}
+library(rstan)
+options(mc.cores = parallel::detectCores())
+
+#Installing Stan can be done by the next line
+#install.packages("rstan", repos = c("https://mc-stan.org/r-packages/", getOption("repos")))
+
+#If you have encountered some issues do to previous attempts to install Stan,
+#run the next line first to remove previous versions of rstan 
+#remove.packages(c("StanHeaders", "rstan"))
+
+#Test whether your installation works
+#example(stan_model, package = "rstan", run.dontrun = TRUE)
+```
+
+**1. Analysis of binomial data: revisiting the drug example**
+
+**A new drug is being considered for relief of chronic pain, with the
+success rate** $\theta$ **being the proportion of patients experiencing
+pain relief (i.e. number of successes has binomial distribution).
+According to past information, a Beta(9.2, 13.8) prior distribution was
+suggested for** $\theta$. This drug had 15 successes out of 20 patients.
+
+**1.1. Compute the posterior mean, standard deviation and a** $95\%$
+**credible interval.**
+
+```{r}
+
+```
+
+**1.2. What is the probability that the true success rate is greater
+than 0.6.**
+
+```{r}
+
+```
+
+**1.3. Suppose 40 more patients were entered into the study. What is the
+chance that at least 25 of them experience pain relief?**
+
+```{r}
+
+```
+
+**2. State space modeling for gray whale abundance**
+
+**In this exercise, we continue work with our state space model from
+Lecture 4.**
+
+**As a recap, we have some observations of gray whale abundance (i.e.
+population size) during some of the years in the period 1951-1997. It
+turns out that it is easier to fit a model on the logarithm of the
+population rather than the population directly. We are going to use the
+following models from the true log-population** $x_t$ **(**$t$ **denotes
+the year),**
+
+$$x_t = b x_{t-1}+u+w_t; \quad w_t\sim N(0,\sigma^2).$$
+
+**The observations are not assumed to be exact, but we allow them to
+have an error, this is modelled as**
+
+$$y_t =x_{t}+v_t, \quad v_t\sim N(0,\eta^2).$$
+
+**This is a simple State-Space Model (SSM), also called Hidden Markov
+Model.** $x_t$ **are the hidden states, and** $y_t$ **are the
+observations.**
+
+**The following lines load the dataset and create the observation
+vector** $y$.
+
+```{r}
+library("MARSS")
+#This loads to MARSS library
+#If not available, please use install.packages("MARSS") first before loading it
+
+# We load the graywhales dataset, and print out the values
+data(graywhales)
+print(graywhales)
+
+n=1997-1951+1;
+#We will have one y[i] for each year from 1951 until 1997
+#So i=1 corresponds to 1951, i=2 corresponds to 1952, etc.
+
+y=rep(NA,n);
+for(i in 1:nrow(graywhales)){
+    y[graywhales[i,1]-1950]=log(graywhales[i,2]);
+}
+```
+
+**2.1. Implement the model in Stan using the following prior
+distributions for the model parameters:**
+
+-   **Gaussian prior** $N(\log(2500),1)$ for the initial state $x_0$,
+
+-   **Uniform prior on the interval (0,1) for parameter** $b$,
+
+-   **Exponential prior with parameter 1 for** $u$,
+
+-   **Inverse Gamma prior with parameters (0.1,0.1) for** $\sigma^2$ and
+    $\eta^2$.
+
+**Hint: you can use the code provided with Lecture 4 for this.**
+
+**Compile and run the Stan simulations. Report the effective samples
+sizes for these 5 parameters. Choose the number of steps in the burn-in
+period and the number of MCMC iterations in a way to ensure that the
+effective sample sizes for the 4 parameters** $x_0$,$b$**,** $u$**,**
+$\sigma^2$ **and** $\eta^2$ **are all above 1000. Once this is ensured,
+compute summary statistics and plot the posterior densities of these
+parameters.**
+
+```{r}
+
+```
+
+**2.2. Now we are going to perform prior sensitivity checks. Try a
+different prior distribution for the 5 variables. For** $x_0$**, please
+do not change the mean significantly from log(2500), but you can try a
+different variance. When formulating priors, you are encouraged to use
+your understanding of the model parameters and biological facts (see
+e.g. <https://en.wikipedia.org/wiki/Gray_whale>). Run the simulations
+again, and compare the summary statistics and posterior density plots of
+these 5 parameters.**
+
+```{r}
+
+```
+
+**2.3.** **Update the model to compute the posterior distribution of the
+log population sizes (**$x_t$**) every year between 1951-2050. Plot the
+evolution of the posterior mean of the log population sizes from
+1951-2050 on a single plot, along with two other curves that correspond
+to the [2.5%, 97.5%] credible interval of the log population size
+(**$x_t$**) according to the posterior distribution at each year.
+Finally, estimate the posterior probability that the population of gray
+whales becomes smaller than 100 at any year from 1951 until the end of
+2050 (i.e.,** $p(\min_{t\in \{0,1\ldots,99\}} x_t<=\log(100)|y)$**).**
+
+```{r}
+
+```
+
+**2.4. We are going to perform posterior predictive checks to evaluate
+the fit of this model on the data. First, create replicate observations
+from the posterior predictive using Stan. The number of replicate
+observations should be at least 1000. Compute the minimum, maximum,
+median, kurtosis and skewness for the replicated observations. Plot the
+histograms for these quantities together with a line that shows the
+value of the function considered on the actual dataset (see the R code
+for Lecture 3 for an example). Perform these checks both for the
+original prior from Question 2.1, and the prior you have proposed in
+Question 2.2. Discuss the results.**
+
+```{r}
+
+```
+
+**3. Multivariate Multiple Regression - Seemingly Unrelated
+Regressions**
+
+**In this exercise, we are going to work on the high school exam scores
+dataset from Lecture 3.** **We start by loading the dataset, and fitting
+regression models on all exam scores ()**
+
+```{r}
+#Loading the dataset
+df<-read.csv("sur_scores.csv",header = TRUE, sep = ",")
+head(df)
+```
+
+```{r}
+df$prog=as.factor(df$prog)
+#converting prog it to factor format (categorical variable)
+#the rest of the covariates are textual, so automatically treated as categorical
+m1<-lm(cbind(math,read, write, science, socst)~female+race+ses+schtyp+prog,data=df)
+#socst refers to social studies
+#when using the cbind(math,read, write, science, socst) as response, two independent linear models are fitted for each response
+summary(m1)
+```
+
+**3.1. Fit a Bayesian Multivariate Multiple Regression model in Stan for
+these response variables using female, race, ses, schtyp, and prog as
+covariates (see the code of Lecture 4, available on Learn).**
+
+**Assume that the covariance matrix between the error terms is diagonal
+(i.e. the regressions are independent).**
+
+**Print out the summary statistics, and compute the RMSE values over the
+whole dataset.**
+
+**3.2. Set a prior distribution on the error covariance matrix that
+allows for non-diagonal matrices too (one possible way is by setting a
+prior on the correlation matrix and the eigenvalues of the covariance
+matrix separately, see the code of Lecture 4). Re-fit your Bayesian
+Multivariate Multiple Regression model using this prior, i.e. allow for
+non-diagonal covariances.**
+
+**Print out the summary statistics, and compute the RMSE values over the
+whole dataset.**
+
+**3.3. Perform posterior predictive checks for both models. Discuss the
+results.**
+
+**4. Infectious disease model.**
+
+**In this excercise, we are going to implement a Bayesian infectious
+disease model, based on the paper "Bayesian workflow for disease
+transmission modeling in Stan'' by Grinsztajn et al.**
+
+We will use a simple SIR model (Susceptible/Infected/Recovered), which
+is a population based model (i.e. individual characteristics are not
+taken into account).
+
+Let $N$ denote the total size of the population (assumed to stay
+constant).
+
+Let $S$ , $I$, and $R$ denote the number of Susceptible (i.e. they can
+be infected), Infected, and Recovered persons. These depend on the time
+parameter $t$.
+
+The evolution of these is modeled with the following ODE (ordinary
+differential equation):
+
+$$
+\begin{aligned}
+ \frac{dS}{dt} &= -\beta  S \frac{I}{N}\\
+ \frac{dI}{dt} &= \beta  S  \frac{I}{N} - \gamma  I \\
+ \frac{dR}{dt} &= \gamma I
+\end{aligned}
+$$ where
+
+-   $S(t)$ is the number of people susceptible to becoming infected (no
+    immunity),
+
+-   $I(t)$ is the number of people currently infected (and infectious),
+
+-   $R(t)$ is the number of recovered people (we assume they remain
+    immune indefinitely),
+
+-   $\beta$ is the constant rate of infectious contact between people,
+
+-   $\gamma$ the constant recovery rate of infected individuals.
+
+There are certain assumptions required for this model to be a reasonable
+approximation of infection spread (such as no births or deaths, i.e.
+$S(t)+I(t)+R(t)=N$ for all times), see the original paper for more
+details.
+
+In general, infections start from one individual, we choose the initial
+conditions $$I(0)=1, \quad R(0)=0, \quad S(0)=N-1.$$
+
+In addition to the mathematical model itself, we also allow for
+observation noise, by modelling the observed infections as
+
+$$ I_\text{obs}(t) \sim \text{NegBin}(I_\text{ODE}(t),
+\phi).$$
+
+The Negative Binomial distribution has two parameters, it's mean
+($I_\text{ODE}(t)$) and overdispersion parameter ($\phi$), see
+
+<https://mc-stan.org/docs/functions-reference/nbalt.html>
+
+We are going apply this model to a small dataset. This is about
+influenza infections among students in a boarding school in England in
+1978, from 1978-01-22 until 1978-02-04. There were $N=763$ students in
+the school in total, 512 of them got infected at some point during this
+period. The dataset is available as part of the outbreaks package.
+
+```{r}
+library(outbreaks)
+print.data.frame(influenza_england_1978_school)
+```
+
+**4.1.** **Implement the above model on this dataset by assuming that
+\$I(0)=1\$, and the observations** $I_\text{obs}(t)$ **for**
+$t=1,\ldots,14$ **correspond to the in_bed column in the dataset. You
+can either choose priors for the model parameters yourself, or choose
+your priors as suggested in the original paper "Bayesian workflow for
+disease transmission modeling in Stan''.**
+
+**Hint: Since this process is defined in continuous time, and the
+observations are in discrete time, you will need to solve the ODE
+governing the dynamics within your Stan model, and then generate the
+observations based on the solution of this ODE.**
+
+**To do this, you will first need to define a function that computes the
+derivatives (i.e. right hand side of the ODE). Such functions need to go
+to the function{} block, that comes before any other blocks (such as
+data, etc.), a simple example:**
+
+```         
+functions {
+
+real add_up(real a, real b){
+  return a + b;
+}
+
+}
+```
+
+**You can see how to create user defined functions here:
+<https://mc-stan.org/docs/reference-manual/function-definition-block.html>**
+
+**The ODE itself can be solved using the ODE_rk45 solver, which has the
+following parametrization,**
+
+`array[] vector` `ode_rk45(function ode, vector initial_state, real initial_time, array[] real times, ...)`**\
+See
+<https://mc-stan.org/docs/functions-reference/functions-ode-solver.html>
+for more options.**
+
+**Here ode is the function specifying the right hand side of the ODE.
+This has to be in a specific format:**
+
+```         
+vector ode(real t, vector y, ...);
+```
+
+**The first argument to the system function is time, passed as a `real`;
+the second argument to the system function is the system state, passed
+as a `vector`, and the return value from the system function are the
+current time derivatives of the state defined as a `vector`. Additional
+arguments can be included in the system function to pass other
+information into the solve (these will be passed through the function
+that starts the ODE integration). These argument can be parameters,
+data, or any quantities that are needed to define the differential
+equation.**
+
+**For some examples, see
+<https://mc-stan.org/docs/stan-users-guide/coding-the-ode-system-function.html>.**
+
+**4.2. Compile the model, run the MCMC sampler, and print out the
+summary statistics from the model parameters. Plot the modeled number of
+infections per day** $I(t)$ **against the observed number of
+infections** $I_{obs}(t)$.
+
+**4.3. Evaluate the predictive performance of this model by repeatedly
+fitting it on the data from days** $1,\ldots, t$ **and predict the
+number of infections on days** $t+1$, from $t=3$ **until** $t=13$**.
+Plot the estimated infections versus the observed values.**
+
+**4.4. Perform posterior predictive model checks. Discuss your
+results.**

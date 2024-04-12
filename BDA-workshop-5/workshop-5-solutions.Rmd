@@ -1,0 +1,572 @@
+---
+editor_options:
+  markdown:
+    wrap: 72
+output: pdf_document
+---
+
+**University of Edinburgh**\
+**School of Mathematics**\
+**Bayesian Data Analysis, 2023/2024, Semester 2**\
+
+**Workshop 5: Temporal and Spatial Random Effects**
+
+```{r}
+library(INLA)
+```
+
+# 1. **Modelling fatal airline accidents from 1976 through 2001.**
+
+**This exercise has been taken largely from a shortcourse at the
+University of Copenhagen which occurred in January 2013 and notes from
+Gurrin, Carstensen, Hojsgaard, and Ekstrom. The dataset `airline.RData`
+is available on Learn.**
+
+**The fields are:**\
+**- Year1975 (number of years after 1975),**
+
+**- Year,**
+
+**- Fatal (number of fatal airline accidents),**
+
+**- Miles (total passenger miles, in** $10^{11}$ **miles, e.g.,**
+$3.863 = 3.683*10^{11} \text{miles} = 368.3$ **Billion miles),**
+
+**- Rate (fatalities per** $10^{11}$ **passenger miles).**
+
+**You will be fitting some temporal random effect Poisson models to
+Fatal.**
+
+```{r}
+load("airline.RData")
+head(airlines)
+```
+
+**1.1. Fit a simple Poisson model on Fatal in INLA with Year as a
+covariate, with offset set as log(miles) (see Workshop 4, question 1.5),
+i.e. a Poisson model of the form**
+$$\log(\mu(t))=\beta_0 + \beta_1 (t-\bar{t})+\log(\text{miles}(t))$$
+**Here miles is the total number of miles of flights per year divided by
+10\^11 (ranging from 5 to 20 during the period 1976-2001.**
+
+**Either choose your own priors for** $\beta_0$ and $\beta_1$, or use
+the default priors.
+
+**Compute the DIC, NLSCPO, and WAIC scores (WAIC can be computed by
+setting waic=T in control.compute).**
+
+```{r}
+prior.beta=list(mean.intercept = 0, prec.intercept = 0.1,
+                    mean = 0, prec = 1)
+q1.m1.inla <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE),family="Poisson",data=airlines,offset=log(miles), control.fixed=prior.beta,control.compute=list(cpo=T,dic=T,waic=T))
+summary(q1.m1.inla)
+```
+
+```{r}
+cat("Marginal log-likelihood of model 1:",q1.m1.inla$mlik[1],"\n")
+cat("DIC of model 1:",q1.m1.inla$dic$dic,"\n")
+cat("WAIC of model 1:",q1.m1.inla$waic$waic,"\n")
+cat("NSLCPO of model 1:",-sum(log(q1.m1.inla$cpo$cpo)),"\n")
+```
+
+```{r}
+plot(airlines$year,q1.m1.inla$summary.fitted.values$sd,type="l",xlab="Year",ylab="sd(mu(t))")
+```
+
+```{r}
+plot(airlines$year,q1.m1.inla$summary.fitted.values$mean,type="l",xlab="Year",ylab="E(mu(t))")
+```
+
+**1.2. Fit a Poisson model on Fatal in INLA with Year as a covariate,
+with offset set as log(miles) (see Workshop 4, question 1.5), using RW1
+random effect on the year, i.e. a Poisson model of the form**
+$$\log(\mu(t))=\beta_0 + \beta_1 (t-\bar{t})+\log(\text{miles}(t))+f(t).$$**Compute
+the DIC, NLSCPO, and WAIC scores. Plot the evolution of the posterior
+standard deviation of the fitted values (**$\mu(t)$**) over the years
+1976-2001.**
+
+```{r}
+prior.beta=list(mean.intercept = 0, prec.intercept = 0.1,
+                    mean = 0, prec = 1)
+q1.m2.inla <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE)+f(year1975,model="rw1",constr=TRUE),family="Poisson",data=airlines,offset=log(miles), control.fixed=prior.beta,control.compute=list(cpo=T,dic=T,waic=T))
+summary(q1.m2.inla)
+```
+
+```{r}
+cat("Marginal log-likelihood of model 2:",q1.m2.inla$mlik[1],"\n")
+cat("DIC of model 2:",q1.m2.inla$dic$dic,"\n")
+cat("WAIC of model 2:",q1.m2.inla$waic$waic,"\n")
+cat("NSLCPO of model 2:",-sum(log(q1.m2.inla$cpo$cpo)),"\n")
+```
+
+```{r}
+plot(airlines$year,q1.m2.inla$summary.fitted.values$sd,type="l",xlab="Year",ylab="sd(mu(t))")
+```
+
+```{r}
+plot(airlines$year,q1.m2.inla$summary.fitted.values$mean,type="l",xlab="Year",ylab="E(mu(t))")
+```
+
+```{r}
+#Contribution of random effect
+plot(airlines$year,q1.m2.inla$summary.random$year1975$mean,type="l",xlab="Year",ylab="Posterior mean of rw1 temporal random effect")
+```
+
+**1.3. Fit a Poisson model on Fatal in INLA with Year as a covariate,
+with offset set as log(miles) (see Workshop 4, question 1.5), using AR-1
+random effect on the year, i.e. a Poisson model of the form**
+$$\log(\mu(t))=\beta_0 + \beta_1 (t-\bar{t})+\log(\text{miles}(t))+f(t).$$**Compute
+the DIC, NLSCPO, and WAIC scores. Plot the evolution of the posterior
+standard deviation of the fitted values (**$\mu(t)$**) over the years
+1976-2001.**
+
+```{r}
+prior.beta=list(mean.intercept = 0, prec.intercept = 0.1,
+                    mean = 0, prec = 1)
+q1.m3.inla <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE)+f(year1975,model="ar1"),family="Poisson",data=airlines,offset=log(miles), control.fixed=prior.beta,control.compute=list(cpo=T,dic=T,waic=T))
+summary(q1.m3.inla)
+```
+
+```{r}
+cat("Marginal log-likelihood of model 3:",q1.m3.inla$mlik[1],"\n")
+cat("DIC of model 3:",q1.m3.inla$dic$dic,"\n")
+cat("WAIC of model 3:",q1.m3.inla$waic$waic,"\n")
+cat("NSLCPO of model 3:",-sum(log(q1.m3.inla$cpo$cpo)),"\n")
+```
+
+```{r}
+plot(airlines$year,q1.m3.inla$summary.fitted.values$sd,type="l",xlab="Year",ylab="sd(mu(t))")
+```
+
+```{r}
+plot(airlines$year,q1.m3.inla$summary.fitted.values$mean,type="l",xlab="Year",ylab="E(mu(t))")
+```
+
+```{r}
+#Contribution of random effect
+plot(airlines$year,q1.m3.inla$summary.random$year1975$mean,type="l",xlab="Year",ylab="Posterior mean of ar-1 temporal random effect")
+```
+
+**1.4. Fit a Poisson model on Fatal in INLA with Year as a covariate,
+with offset set as log(miles) (see Workshop 4, question 1.5), using AR-2
+random effect on the year, i.e. a Poisson model of the form**
+$$\log(\mu(t))=\beta_0 + \beta_1 (t-\bar{t})+\log(\text{miles}(t))+f(t).$$**Compute
+the DIC, NLSCPO, and WAIC scores. Plot the evolution of the posterior
+standard deviation of the fitted values (**$\mu(t)$**) over the years
+1976-2001. Discuss and compare all 4 models in 1.1. - 1.4.**
+
+```{r}
+prior.beta=list(mean.intercept = 0, prec.intercept = 0.1,
+                    mean = 0, prec = 1)
+q1.m4.inla <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE)+f(year1975,model="ar",order=2),family="Poisson",data=airlines,offset=log(miles), control.fixed=prior.beta,control.compute=list(cpo=T,dic=T,waic=T),control.predictor =list(compute=TRUE))
+summary(q1.m4.inla)
+```
+
+```{r}
+cat("Marginal log-likelihood of model 4:",q1.m4.inla$mlik[1],"\n")
+cat("DIC of model 4:",q1.m4.inla$dic$dic,"\n")
+cat("WAIC of model 4:",q1.m4.inla$waic$waic,"\n")
+cat("NSLCPO of model 4:",-sum(log(q1.m4.inla$cpo$cpo)),"\n")
+```
+
+As we can see, model 4 is the best amongst all four models considered in
+terms of DIC, WAIC and NLSCPO.
+
+```{r}
+plot(airlines$year,q1.m4.inla$summary.fitted.values$sd,type="l",xlab="Year",ylab="sd(mu(t))")
+```
+
+```{r}
+plot(airlines$year,q1.m4.inla$summary.fitted.values$mean,type="l",xlab="Year",ylab="E(mu(t))")
+```
+
+```{r}
+#Contribution of random effect
+plot(airlines$year,q1.m4.inla$summary.random$year1975$mean,type="l",xlab="Year",ylab="Posterior mean of ar-2 temporal random effect")
+```
+
+As we can see, the posterior mean E(mu(t)) in AR-2 model varies more
+smoothly in terms of Year than in the previous models, but sd(mu(t)) is
+significantly higher (2.2-3) compared to the other models.
+
+**1.5. Re-fit all 4 models from 1.1 - 1.4 using only data from
+1976-1997, and use these to predict the number of incidents in 1998,
+1999, 2000 and 2001 (Hint: include these years as NA in the response).
+Compute the posterior predictive mean number of incidents each year from
+1998-2001 and compute the differences between the predicted and actual
+values. Discuss the predictive accuracy of the models.**
+
+```{r}
+airlines.pred=airlines
+n=nrow(airlines)
+airlines.pred$fatal[(n-3):n]=NA
+
+q1.m1.inla.pred <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE),family="Poisson",data=airlines.pred,offset=log(miles), control.fixed=prior.beta, control.predictor = list(link=1))
+q1.m1.inla.pred$summary.fitted.values$mean[(n-3):n]
+airlines$fatal[(n-3):n]
+diff=q1.m1.inla.pred$summary.fitted.values$mean[(n-3):n]-airlines$fatal[(n-3):n]
+diff
+mean(abs(diff))
+```
+
+```{r}
+q1.m2.inla.pred <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE)+f(year1975,model="rw1"),family="Poisson",data=airlines.pred,offset=log(miles), control.fixed=prior.beta, control.predictor = list(link=1))
+q1.m2.inla.pred$summary.fitted.values$mean[(n-3):n]
+airlines$fatal[(n-3):n]
+diff=q1.m2.inla.pred$summary.fitted.values$mean[(n-3):n]-airlines$fatal[(n-3):n]
+diff
+mean(abs(diff))
+```
+
+```{r}
+q1.m3.inla.pred <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE)+f(year1975,model="ar1"),family="Poisson",data=airlines.pred,offset=log(miles), control.fixed=prior.beta, control.predictor = list(link=1))
+q1.m3.inla.pred$summary.fitted.values$mean[(n-3):n]
+airlines$fatal[(n-3):n]
+diff=q1.m3.inla.pred$summary.fitted.values$mean[(n-3):n]-airlines$fatal[(n-3):n]
+diff
+mean(abs(diff))
+```
+
+```{r}
+q1.m4.inla.pred <- inla(fatal ~ 1+scale(year1975,center = TRUE, scale = FALSE)+f(year1975,model="ar",order=2),family="Poisson",data=airlines.pred,offset=log(miles), control.fixed=prior.beta, control.predictor = list(link=1))
+q1.m4.inla.pred$summary.fitted.values$mean[(n-3):n]
+airlines$fatal[(n-3):n]
+diff=q1.m4.inla.pred$summary.fitted.values$mean[(n-3):n]-airlines$fatal[(n-3):n]
+diff
+mean(abs(diff))
+```
+
+As we can see, the AR-2 model slightly lower prediction error on these 4
+years. Combined with the better DIC, WAIC and NLSCPO scores, it
+indicates that this is likely the best model in terms of predictive
+performance. Nevertheless, the size of the test data (4 observations)
+and the training data (22 observations) are too small to make a
+definitive conclusion.
+
+# 2. **Modelling rainfall data from Brazil**
+
+**Our dataset contains daily rainfall amounts (in mm) recorded at 616
+stations in the 2011 year in Paraná state, Brazil.**
+
+```{r}
+require(splancs) 
+require(INLA) 
+require(gridExtra) 
+require(lattice) 
+
+data(PRprec) 
+head(PRprec)
+```
+
+```{r}
+table(rowSums(is.na(PRprec[, 3 + 1:31])))
+```
+
+As we can see, there are some missing values in the dataset. We compute
+the total rainfall in January and save it as a new column called
+precJanuary (missing values are ignored using na.rm=TRUE).
+
+```{r}
+PRprec$precJanuary <- rowSums(PRprec[, 3 + 1:31], na.rm = TRUE)
+meanAltitude=mean(PRprec$Altitude, na.rm=TRUE)
+PRprec$Altitude[is.na(PRprec$Altitude)]=meanAltitude
+```
+
+**2.1. Using INLA, implement a Bayesian linear regression model with
+Gaussian likelihood for the total rainfall in January (precJanuary) with
+Altitude, Latitude and Longitude as covariates. Interpret the summary of
+the fitted model. Compute the DIC, NLSCPO and WAIC scores.**
+
+```{r}
+prior.beta=list(mean.intercept = 0, prec.intercept = 1e-6,
+                    mean = 0, prec = 1e-4)
+q2.m1.inla <- inla(precJanuary ~ 1+scale(Altitude)+scale(Latitude)+scale(Longitude),family="Gaussian",data=PRprec, control.fixed=prior.beta,control.compute=list(cpo=T,dic=T,waic=T))
+summary(q2.m1.inla)
+```
+
+**2.2. In this question, we will build a spatial model.**
+
+```{r}
+coords <- as.matrix(PRprec[, 1:2]) 
+plot(coords)
+```
+
+```{r}
+prdomain <- inla.nonconvex.hull(as.matrix(PRprec[, 1:2]),
+  convex = -0.03, concave = -0.05,
+  resolution = c(100, 100))
+plot(prdomain)
+```
+
+```{r}
+prmesh <- inla.mesh.2d(boundary = prdomain,
+  max.edge = c(0.45, 1), cutoff = 0.2)
+plot(prmesh)
+```
+
+**Using INLA or inlabru, implement a Bayesian regression model (Gaussian
+likelihood) for the total rainfall in January (precJanuary) with
+Altitude, Latitude and Longitude as fixed effects, an SPDE random effect
+for the location (Longitude/Latitude). Interpret the summary of the
+fitted model. Plot the posterior mean of the spatial random effect.
+Compute the DIC, NLSCPO and WAIC scores.**
+
+```{r}
+Locations = cbind(PRprec$Longitude, PRprec$Latitude) 
+loc.spde = inla.spde2.pcmatern(mesh = prmesh,
+           prior.range = c(1, 0.1),
+           prior.sigma = c(200, 0.1))
+#The choices of the priors are crucial for good performance
+#See https://rdrr.io/github/INBO-BMK/INLA/man/inla.spde2.pcmatern.html for a description on the meaning of the prior parameters
+#In particular, we need to set prior.sigma to sufficiently large, since the response variable changes on a scale of 200.
+
+loc.A <- inla.spde.make.A(prmesh, loc = Locations) 
+loc.w <- inla.spde.make.index('w', n.spde = loc.spde$n.spde) 
+
+# Make the model matrix using the final model selection formula without response and intercept.
+X0 <- model.matrix(as.formula(" ~ 0+Altitude+Longitude+Latitude"), data = PRprec) 
+X <- as.data.frame(X0) # convert to a data frame. 
+
+# Making the stack ####
+
+N <- nrow(PRprec)
+
+
+StackPR<- inla.stack(
+  data = list(y = PRprec$precJanuary), # specify the response variable
+  
+  A = list(1, 1, loc.A), # Vector of Multiplication factors for  fixed effects              
+  
+  effects = list(
+    Intercept = rep(1, N), # specify the manual intercept!
+    X = X, # attach the model matrix
+   # insert vectors of any random effects
+    w = loc.w) ) # attach the w 
+```
+
+```{r}
+q2.m2.inla <- inla(y ~ 0 + Intercept +Altitude+Longitude+Latitude
+            +f(w, model = loc.spde),     
+            family = "Gaussian",
+            data = inla.stack.data(StackPR),
+            control.compute = list(cpo=T,dic = T,waic=T),
+            control.predictor = list(A = inla.stack.A(StackPR)),control.inla=list(tolerance=1e-10))
+summary(q2.m2.inla)
+
+```
+
+```{r}
+library(INLA)
+library(inlabru)
+
+Locations = data.frame(easting=PRprec$Longitude, northing=PRprec$Latitude) 
+loc.spde = inla.spde2.pcmatern(mesh = prmesh,
+           prior.range = c(1, 0.5), 
+           prior.sigma = c(200, 0.1)) 
+
+
+
+PRprec$geometry <- sf::st_as_sf(Locations, coords = c("easting", "northing"))$geometry
+
+cmp <- precJanuary ~ floc(geometry, model = loc.spde)+Longitude+Latitude+Altitude+ Intercept(1)
+
+
+q2.m2.bru <- bru(components=cmp, family = "gaussian",data=PRprec,
+                    samplers = prdomain,
+    domain = list(coordinates = prmesh),
+                 options=list(control.inla=list(tolerance=1e-10)))
+summary(q2.m2.bru)
+```
+
+```{r}
+
+if(!require(ggregplot)){
+    devtools::install_github("gfalbery/ggregplot")
+    library(ggregplot)
+}
+library(ggplot2) 
+library(tidyverse)
+library(RColorBrewer)
+
+
+ggField(q2.m2.inla, prmesh, Groups = 1,Res=600) + scale_fill_brewer(palette = "RdYlBu")
+  #scale_fill_gradientn(colours=brewer.pal(11, "RdYlBu"))
+  
+  #brewer.pal(11, "RdYlBu")#scale_fill_brewer(palette = "RdYlBu")
+
+
+```
+
+```{r}
+library(INLA)
+library(inlabru)
+library(fmesher)
+library(ggplot2)
+library(sp)
+library(RColorBrewer)
+
+
+  pix <- fm_pixels(prmesh, dims = c(200, 200))
+
+  pred <- predict(q2.m2.bru, pix, ~ floc)
+
+  ggplot() + gg(pred, geom = "tile") +
+  ggtitle("Posterior mean of spatial random effect")+
+  scale_fill_gradientn(colours=brewer.pal(11, "RdYlBu"),limits=range(pred$mean))
+```
+
+**2.3. We define a new covariate related to the distance to the ocean.**
+
+```{r}
+coords <- as.matrix(PRprec[, 1:2]) 
+mat.dists <- spDists(coords, PRborder[1034:1078, ],
+  longlat = TRUE) 
+PRprec$oceanDist <- apply(mat.dists, 1, min) 
+```
+
+**Using INLA or inlabru, implement a Bayesian regression model (Gaussian
+likelihood) for the total rainfall in January (precJanuary) with
+Altitude, Latitude and Longitude as fixed effects, an SPDE random effect
+for the location (Longitude/Latitude), and additional random effects on
+the Altitude, and distance to the ocean, oceanDist (these can be rw1,
+ar1, or SPDE). Interpret the summary of the fitted model. Plot the
+posterior mean of the spatial random effect. Compute the DIC, NLSCPO and
+WAIC scores. Compare all 3 models in questions 2.1 - 2.3.**
+
+```{r}
+library(INLA)
+library(inlabru)
+
+Locations = data.frame(easting=PRprec$Longitude, northing=PRprec$Latitude) 
+loc.spde = inla.spde2.pcmatern(mesh = prmesh, 
+           prior.range = c(1, 0.5), 
+           prior.sigma = c(200, 0.1)) 
+a.mesh <- inla.mesh.1d(seq(min(PRprec$Altitude),max(PRprec$Altitude),length.out=100))
+a.spde = inla.spde2.pcmatern(mesh = a.mesh, 
+                             prior.range = c(100, 0.5), 
+                             prior.sigma = c(1000, 0.1)) # Making SPDE
+
+d.mesh <- inla.mesh.1d(seq(min(PRprec$oceanDist),max(PRprec$oceanDist),length.out=100))
+d.spde = inla.spde2.pcmatern(mesh = d.mesh, 
+                             prior.range = c(100, 0.5), 
+                             prior.sigma = c(1000, 0.1)) # Making SPDE
+
+PRprec$geometry <- sf::st_as_sf(Locations, coords = c("easting", "northing"))$geometry
+
+
+
+cmp <- precJanuary ~ floc(geometry, model = loc.spde)+Longitude+Latitude+Altitude+ oceanDist+fa(Altitude,model=a.spde)+fo(oceanDist,model=d.spde)+Intercept(1)
+
+
+q2.m3.bru <- bru(components=cmp, family = "gaussian",data=PRprec, options=list(control.inla=list(tolerance=1e-10)))
+summary(q2.m3.bru)
+```
+
+```{r}
+plot(d.mesh$loc,q2.m3.bru$summary.fixed$mean[4]*d.mesh$loc+q2.m3.bru$summary.random$fo$mean,xlab="distance from ocean",ylab="mean of total effect (fixed + random effect)",type="l")
+```
+
+```{r}
+plot(a.mesh$loc,q2.m3.bru$summary.fixed$mean[3]*a.mesh$loc+q2.m3.bru$summary.random$fa$mean,xlab="altitude",ylab="mean of total effect (fixed + random effect)",type="l")
+```
+
+```{r}
+
+  pix <- fm_pixels(prmesh, dims = c(200, 200))
+
+  pred <- predict(q2.m3.bru, pix, ~ floc)
+
+  ggplot() + gg(pred, geom = "tile") +
+  ggtitle("Posterior mean of spatial random effect")+
+  scale_fill_gradientn(colours=brewer.pal(11, "RdYlBu"),limits=range(pred$mean))
+```
+
+**2.4. Compute the total rainfall in all 12 months in the dataset, at
+each location. Define a new data frame where the response column
+monthlyprec contains the monthly rainfall, the month covariate denotes
+the number of the month, and the Longitude, Latitude and Altitude
+covariates are still included for each observation point. Using INLA or
+inlabru, implement a Bayesian regression model (Gaussian likelihood) for
+the monthly rainfall (monthlyprec) with Altitude, Latitude and Longitude
+as fixed effects, an SPDE random effect for the location
+(Longitude/Latitude), and additional random effects on the month,
+Altitude, oceanDist covariates. Interpret the summary of the fitted
+model. Plot the posterior mean of the spatial random effect. Compute the
+DIC, NLSCPO and WAIC scores. Discuss and interpret the results.**
+
+```{r}
+n=nrow(PRprec)
+PRprec.monthly<-data.frame(Latitude=PRprec$Latitude,Longitude=PRprec$Longitude,Altitude=PRprec$Altitude,
+                           oceanDist=PRprec$oceanDist,geometry=PRprec$geometry,rain=0,month=0)
+PRprec.monthly<-do.call("rbind", replicate(12, PRprec.monthly, simplify = FALSE))
+strstart<-list("d01","d02","d03","d04","d05","d06","d07","d08","d09","d10","d11","d12")
+for(m in 1:12){
+PRprec.monthly$rain[((m-1)*n+1):(m*n)]<-rowSums(PRprec[,grepl(strstart[[m]],colnames(PRprec),fixed=TRUE)],na.rm=TRUE)
+PRprec.monthly$month[((m-1)*n+1):(m*n)]=m
+}
+```
+
+```{r}
+library(INLA)
+library(inlabru)
+
+Locations = data.frame(easting=PRprec$Longitude, northing=PRprec$Latitude) 
+loc.spde = inla.spde2.pcmatern(mesh = prmesh, 
+           prior.range = c(1, 0.5), 
+           prior.sigma = c(200, 0.1)) 
+a.mesh <- inla.mesh.1d(seq(min(PRprec$Altitude),max(PRprec$Altitude),length.out=100))
+a.spde = inla.spde2.pcmatern(mesh = a.mesh, 
+                             prior.range = c(100, 0.5), 
+                             prior.sigma = c(200, 0.1)) # Making SPDE
+
+d.mesh <- inla.mesh.1d(seq(min(PRprec$oceanDist),max(PRprec$oceanDist),length.out=100))
+d.spde = inla.spde2.pcmatern(mesh = d.mesh, 
+                             prior.range = c(100, 0.5), 
+                             prior.sigma = c(200, 0.1)) # Making SPDE
+
+PRprec$geometry <- sf::st_as_sf(Locations, coords = c("easting", "northing"))$geometry
+
+
+
+cmp <- rain ~ floc(geometry, model = loc.spde)+Longitude+Latitude+Altitude+ oceanDist+fa(Altitude,model=a.spde)+fo(oceanDist,model=d.spde)+f(month,model="rw1")+Intercept(1)
+
+q2.m4.bru <- bru(components=cmp, family = "gaussian",data=PRprec.monthly, options=list(control.inla=list(tolerance=1e-10)))
+summary(q2.m4.bru)
+```
+
+```{r}
+
+  pix <- fm_pixels(prmesh, dims = c(200, 200))
+
+  pred <- predict(q2.m4.bru, pix, ~ floc)
+
+  ggplot() + gg(pred, geom = "tile") +
+  ggtitle("Posterior mean of spatial random effect")+
+  scale_fill_gradientn(colours=brewer.pal(11, "RdYlBu"),limits=range(pred$mean))
+```
+
+```{r}
+plot(d.mesh$loc,q2.m4.bru$summary.fixed$mean[4]*d.mesh$loc+q2.m4.bru$summary.random$fo$mean,xlab="distance from ocean",ylab="mean of total effect (fixed + random effect)",type="l")
+```
+
+The areas immediately near the ocean seem to be quite rainy. Further
+away, the situation is less clear - this could be due to some
+collinearity between altitude (which in general increases rainfall) and
+distance from the ocean.
+
+```{r}
+plot(a.mesh$loc,q2.m4.bru$summary.fixed$mean[3]*a.mesh$loc+q2.m4.bru$summary.random$fa$mean,xlab="altitude",ylab="mean of total effect (fixed + random effect)",type="l")
+```
+
+As expected, higher altitude seems to result in more rain.
+
+```{r}
+plot(1:12,q2.m4.bru$summary.random$f$mean,xlab="month",ylab="mean of random effect",type="l")
+```
+
+As Encyclopedia Britannica states, "The basins of the Alto Paraná and
+Paraguay have a hot and humid climate throughout the year. The winters
+(April to September) are dry, and the summers (October to March) are
+rainy." This is more-or-less consistent with what we have here, the
+difference in some month could be due to year-to-year variations (we
+only used 1 year of data).
